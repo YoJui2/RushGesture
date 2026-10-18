@@ -1,0 +1,16 @@
+# Dependencias de Gesture Rush (demo núcleo reconocedor, Fases 1-4)
+# Python 3.11.x
+#
+# Versiones fijadas para reproducibilidad. Si alguna version no esta
+# disponible en tu indice, instala sin pin y congela luego con:
+#   pip install mediapipe opencv-python scikit-learn pandas matplotlib pytest
+#   pip freeze > requirements.lock.txt
+
+numpy==1.26.4
+opencv-python==4.10.0.84
+mediapipe==0.10.14
+scikit-learn==1.5.2
+pandas==2.2.3
+matplotlib==3.9.2
+joblib==1.4.2
+pytest==8.3.3
