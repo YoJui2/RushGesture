@@ -45,21 +45,26 @@ class Camera:
     def open(self) -> "Camera":
         if self._cap is not None and self._cap.isOpened():
             return self
-        cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW if _is_windows() else cv2.CAP_ANY)
-        if not cap.isOpened():
-            # Reintento sin backend explicito.
+        for backend in _candidate_backends():
+            try:
+                cap = cv2.VideoCapture(self.index, backend)
+            except cv2.error:
+                # Algunos drivers lanzan una excepcion C++ en lugar de
+                # devolver un VideoCapture vacio.
+                continue
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+                self._cap = cap
+                return self
             cap.release()
-            cap = cv2.VideoCapture(self.index)
-        if not cap.isOpened():
-            raise CameraError(
-                f"No se pudo abrir la camara en el indice {self.index}. "
-                "Verifica que este conectada y no en uso por otra aplicacion."
-            )
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, self.target_fps)
-        self._cap = cap
-        return self
+        raise CameraError(
+            f"No se pudo abrir la camara en el indice {self.index}. "
+            "Verifica que este conectada y no en uso por otra aplicacion. "
+            "Para elegir otra entrada: "
+            "set GESTURE_CAMERA_INDEX=<indice> (o usa scripts/list_cameras.py)."
+        )
 
     def release(self) -> None:
         if self._cap is not None:
@@ -124,3 +129,24 @@ def _is_windows() -> bool:
     import sys
 
     return sys.platform.startswith("win")
+
+
+def _candidate_backends() -> list[int]:
+    """Backends a probar en orden segun la configuracion.
+
+    En Windows ``auto`` prueba Media Foundation (``CAP_MSMF``), luego
+    DirectShow y por ultimo cualquiera. Algunos drivers solo responden a uno
+    de los dos backends, y DirectShow puede devolver fotogramas negros a
+    resoluciones altas.
+    """
+    named = {
+        "dshow": cv2.CAP_DSHOW,
+        "msmf": cv2.CAP_MSMF,
+        "any": cv2.CAP_ANY,
+    }
+    requested = getattr(config, "CAMERA_BACKEND", "auto")
+    if requested in named:
+        return [named[requested]]
+    if not _is_windows():
+        return [cv2.CAP_ANY]
+    return [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]

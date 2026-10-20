@@ -23,7 +23,22 @@ participantes) quedan **fuera** de este demo.
 ## Requisitos
 
 - Python 3.11.x
-- Webcam
+- Webcam o cámara física conectada
+
+## Cámara
+
+El proyecto captura desde la cámara física configurada en
+`gesture_rush/config.py` (`CAMERA_INDEX = 1` en este equipo). Si tu cámara
+enumera con otro índice, puedes comprobarlo y cambiarlo sin editar código:
+
+```bat
+python scripts/list_cameras.py --preview
+set GESTURE_CAMERA_INDEX=0
+```
+
+El backend de captura se elige automáticamente (Media Foundation → DirectShow →
+cualquiera). También puedes forzarlo con `GESTURE_CAMERA_BACKEND=dshow`,
+`msmf` o `any`.
 
 ## Instalación
 
