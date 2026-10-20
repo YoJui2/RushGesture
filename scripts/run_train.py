@@ -34,7 +34,8 @@ def main() -> int:
     comp = result["comparison"]
     print("\n== Comparacion en validacion (macro-F1) ==")
     for name, info in comp.items():
-        print(f"  {name:14s} cv={info['cv_score']:.3f}  "
+        grouped = "" if info.get("cv_grouped", True) else " (intra-participante)"
+        print(f"  {name:14s} cv={info['cv_score']:.3f}{grouped}  "
               f"val_f1={info['val_f1_macro']:.3f}  "
               f"params={info['best_params']}")
 

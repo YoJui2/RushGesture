@@ -62,6 +62,16 @@ class Predictor:
         self.model = model
         self.metadata = metadata or {}
         self.feature_spec = self.metadata.get("feature_spec") or features.feature_spec()
+        spec_version = str(
+            self.feature_spec.get("version", config.FEATURE_SPEC_VERSION)
+        )
+        if spec_version != config.FEATURE_SPEC_VERSION:
+            raise ValueError(
+                "El modelo fue entrenado con features "
+                f"v{spec_version}, pero el codigo usa "
+                f"v{config.FEATURE_SPEC_VERSION}. Reentrena con "
+                "scripts/run_train.py."
+            )
         self.use_z = bool(self.feature_spec.get("use_z", config.USE_Z))
         self.classes = list(getattr(model, "classes_", self.metadata.get("classes", [])))
         expected_dim = int(self.feature_spec.get("dim", features.feature_dim(self.use_z)))

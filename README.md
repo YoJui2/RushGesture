@@ -149,14 +149,25 @@ desajustes entre entrenamiento e inferencia.
 
 ## Metodología de evaluación
 
-- División **agrupada por participante** (`GroupShuffleSplit`): ninguna sesión o
-  persona aparece a la vez en entrenamiento y prueba.
+- **Evaluación principal (`scripts/run_train.py`)**: división **agrupada por
+  participante** (`GroupShuffleSplit`) en train/validación/test. El test se
+  evalúa **una sola vez**.
+- **Validación cruzada (`scripts/run_cv.py`)**: *Leave-One-Participant-Out*.
+  Cada participante es test exactamente una vez; en cada fold los participantes
+  restantes se separan en train y validación. Los hiperparámetros se eligen solo
+  con train y el mejor modelo se reajusta con train+validación antes de evaluar
+  el test. Se informa media ± desviación estándar.
 - Hiperparámetros ajustados con `GridSearchCV` sobre train/validación con
-  `GroupKFold`.
+  `GroupKFold` cuando hay al menos dos participantes en train.
 - Selección por **macro-F1** en validación; el modelo elegido se reajusta con
   train+validación y se evalúa **una sola vez** en el test reservado.
 - Métricas: accuracy, precision/recall/F1 por clase, macro-F1, matriz de
-  confusión, tiempo de inferencia. Informe en `reports/`.
+  confusión, tiempo de inferencia. Informes en `reports/`.
+
+> La validación cruzada no reemplaza la necesidad de más participantes:
+> mejora la estimación, pero no agrega datos nuevos. Con un solo participante
+> en train, la CV interna cae a folds dentro de la misma persona y se marca
+> como `(intra-participante)`.
 
 ## Limitaciones conocidas
 

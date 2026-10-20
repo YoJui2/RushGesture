@@ -111,13 +111,24 @@ def save_confusion_matrix_plot(cm, labels, path: str | Path) -> Path:
     return path
 
 
-def save_metrics_report(metrics_by_model: dict, path: str | Path) -> Path:
+def save_metrics_report(
+    metrics_by_model: dict,
+    path: str | Path,
+    title: str = "Informe de evaluacion - Gesture Rush",
+    notes: list[str] | None = None,
+) -> Path:
     """Guarda un informe de texto con metricas por modelo."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = ["# Informe de evaluacion - Gesture Rush", ""]
+    lines: list[str] = [f"# {title}", ""]
+    for note in notes or []:
+        lines.append(note)
+    if notes:
+        lines.append("")
     for name, info in metrics_by_model.items():
-        lines.append(f"## Modelo: {name}")
+        lines.append(f"## {name}")
+        if "subset" in info:
+            lines.append(f"- conjunto: {info['subset']}")
         lines.append(f"- accuracy: {info['accuracy']:.4f}")
         lines.append(f"- f1_macro: {info['f1_macro']:.4f}")
         lines.append(f"- f1_weighted: {info['f1_weighted']:.4f}")

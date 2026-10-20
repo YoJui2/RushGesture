@@ -65,3 +65,17 @@ def test_load_model_and_predict(small_df, tmp_path):
     assert hasattr(model, "predict")
     label = model.predict(np.zeros((1, features.feature_dim())))[0]
     assert label in config.GESTURES
+
+
+def test_cross_validate_by_participant(small_df, tmp_path):
+    result = train.cross_validate_by_participant(
+        small_df,
+        report_path=tmp_path / "cv_report.md",
+        summary_path=tmp_path / "cv_summary.json",
+        confusion_plot_path=tmp_path / "cv_cm.png",
+    )
+    assert len(result["folds"]) == small_df["participant"].nunique()
+    assert result["report_path"].exists()
+    assert result["summary_path"].exists()
+    assert result["confusion_plot"].exists()
+    assert 0.0 <= result["aggregate"]["f1_macro_mean"] <= 1.0
