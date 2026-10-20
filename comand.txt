@@ -1,1 +1,32 @@
 para correr las pruebas para entrenar python scripts/run_collect.py --participant participant_01 --session s01
+
+
+cd /d D:\RushGesture
+.venv\Scripts\activate
+
+Recolectar más datos
+python scripts/run_collect.py --participant participant_03 --session s02
+python scripts/run_collect.py --participant participant_04 --session s01
+python scripts/run_collect.py --participant participant_05 --session s01
+python scripts/run_collect.py --participant participant_06 --session s01
+
+Teclas del recolector: 1..5 gesto, SPACE pausar/reanudar, q guardar y salir.
+
+Verificar la cámara
+python scripts/run_demo_landmarks.py
+python scripts/list_cameras.py --preview
+
+Evaluar con validación cruzada
+python scripts/run_cv.py
+
+Entrenar el modelo final
+python scripts/run_train.py
+
+Probar en vivo
+python scripts/run_predict.py
+
+Ejecutar las pruebas
+python -m pytest -q
+
+Si falta el modelo de MediaPipe
+python scripts/download_assets.py
