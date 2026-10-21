@@ -30,3 +30,20 @@ python -m pytest -q
 
 Si falta el modelo de MediaPipe
 python scripts/download_assets.py
+
+
+Matriz de confusión
+Para abrir las que ya existen (no reentrena nada):
+start "" "D:\RushGesture\reports\confusion_matrix.png"
+start "" "D:\RushGesture\reports\cv_confusion_matrix.png"
+Para regenerar la del test reservado (vuelve a entrenar y sobrescribe models/gesture_model.*):
+cd /d D:\RushGesture
+.venv\Scripts\activate
+python scripts/run_train.py
+start "" "reports\confusion_matrix.png"
+Para regenerar la matriz acumulada de validación cruzada:
+cd /d D:\RushGesture
+.venv\Scripts\activate
+python scripts/run_cv.py
+start "" "reports\cv_confusion_matrix.png"
+La primera es la del split train/val/test; la segunda es la suma de los folds Leave-One-Participant-Out.

@@ -7,16 +7,36 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Datos y artefactos pesados (se regeneran localmente)
+# Secretos (nunca versionar)
+.env
+.env.*
+!.env.example
+
+# Datos y artefactos
+# El demo versiona el dataset, el modelo y los informes finales para que un
+# clon funcione sin reentrenar. Los archivos temporales/sinteticos se ignoran.
 data/*.csv
+!data/landmarks.csv
 data/*.parquet
+data/_tmp*
 models/*.joblib
+!models/gesture_model.joblib
 models/*.pkl
 models/*.json
+!models/gesture_model.json
+models/synthetic_*
 reports/*.png
+!reports/confusion_matrix.png
+!reports/cv_confusion_matrix.png
 reports/*.txt
 reports/*.json
+!reports/cv_summary.json
+reports/synthetic_*
 assets/*.task
+!assets/hand_landmarker.task
+
+# Paquete de artefactos para transferir entre maquinas
+gesture_rush_artifacts.zip
 
 # Editor
 .vscode/

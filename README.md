@@ -30,8 +30,8 @@ participantes) quedan **fuera** de este demo.
 - Windows 10/11 es el entorno probado. En macOS/Linux el código de cámara usa el
   backend genérico de OpenCV; el resto del pipeline es multiplataforma.
 - ~500 MB de disco para el entorno virtual y dependencias.
-- Internet solo para clonar, instalar dependencias y descargar el modelo de
-  MediaPipe la primera vez.
+- Internet solo para clonar e instalar dependencias. El modelo de MediaPipe ya
+  viene en `assets/`; si falta, `scripts/download_assets.py` lo descarga.
 
 ## Clonar e instalar desde otra máquina
 
@@ -107,8 +107,8 @@ python scripts/check_setup.py
 ```
 
 El script comprueba la versión de Python, las dependencias, el dataset, el modelo
-y el asset de MediaPipe, y te dice qué falta. Después descarga el modelo de manos
-(una sola vez; luego funciona sin Internet):
+y el asset de MediaPipe, y te dice qué falta. El modelo de manos ya viene en
+`assets/`; si falta, descárgalo (una sola vez; luego funciona sin Internet):
 
 ```bat
 python scripts/download_assets.py
@@ -122,67 +122,94 @@ python -m pytest -q
 
 ## Datos y artefactos: qué viaja en el clon
 
-**Importante:** el repositorio versiona el código y la documentación, pero no los
-artefactos pesados. El dataset, el modelo entrenado, las matrices/imágenes y el
-asset de MediaPipe están en `.gitignore`, así que **un clon nuevo no los trae**.
-Son artefactos locales que se regeneran o se copian aparte.
+Este repositorio **incluye los artefactos del demo** para que un clon se pueda
+usar sin reentrenar: el dataset real, el modelo, sus metadatos, los informes y
+el modelo de MediaPipe. Así la demo funciona igual en otra máquina y las
+métricas publicadas se pueden reproducir sin depender de archivos externos.
 
 | Ruta | Contenido | ¿Viene en el clon? |
 |------|-----------|--------------------|
-| `data/landmarks.csv` | Dataset de landmarks etiquetados | No |
-| `models/gesture_model.joblib` | Modelo clasificador entrenado | No |
-| `models/gesture_model.json` | Metadatos (clases, features, métricas) | No |
-| `reports/*.md` | Informes de evaluación | Sí (si están commiteados) |
-| `reports/*.png`, `reports/*.json` | Matrices y resúmenes | No |
-| `assets/hand_landmarker.task` | Modelo preentrenado de MediaPipe | No (se descarga) |
-| `gesture_rush/`, `scripts/`, `tests/` | Código y pruebas | Sí |
-| `docs/` | Diagramas del pipeline | Sí |
+| `data/landmarks.csv` | Dataset real de landmarks | Sí |
+| `models/gesture_model.joblib` | Modelo MLP entrenado | Sí |
+| `models/gesture_model.json` | Metadatos (clases, features, métricas) | Sí |
+| `reports/evaluation_report.md`, `reports/cv_report.md` | Informes de evaluación | Sí |
+| `reports/confusion_matrix.png`, `reports/cv_confusion_matrix.png` | Matrices de confusión | Sí |
+| `reports/cv_summary.json` | Resumen de la validación cruzada | Sí |
+| `assets/hand_landmarker.task` | Modelo preentrenado de MediaPipe | Sí |
+| `data/landmarks_synthetic.csv` | Dataset sintético temporal | No |
+| `models/synthetic_model.*` | Modelo de experimentos | No |
+| `.venv/`, `__pycache__/`, `.pytest_cache/` | Entorno local | No |
 
-### Opción A: copiar los artefactos del equipo original (recomendado)
+> El `.joblib` y el `.json` del modelo son un par: si actualizas uno, actualiza
+> el otro. El JSON guarda la especificación de features y las clases, y el
+> predictor lo usa para validar que el modelo sea compatible con el código.
 
-Si quieres conservar **exactamente** el dataset y el modelo ya entrenados, copia
-`data/`, `models/` y `reports/` desde la máquina original.
+### ¿Por qué se versionan los artefactos?
 
-En la máquina original, desde la raíz del proyecto:
+Para este proyecto tiene sentido porque:
 
-```powershell
-powershell Compress-Archive -Path data,models,reports -DestinationPath gesture_rush_artifacts.zip
-```
+- El dataset pesa ~9 MB, el modelo ~130 KB y el asset ~7,8 MB: en total ~18 MB,
+  muy por debajo de los límites de GitHub.
+- Un clon queda **listo para demostrar** sin webcam para entrenar ni pasos
+  manuales de transferencia.
+- Se reproducen exactamente las métricas de `reports/` con el mismo modelo.
+- El paquete `.joblib` + `.json` + informe queda congelado como evidencia.
 
-En la máquina nueva, después de clonar y crear el entorno, desde la raíz:
+Cuándo **no** conviene:
 
-```powershell
-powershell Expand-Archive -Path gesture_rush_artifacts.zip -DestinationPath . -Force
-```
+- Si el dataset crece a cientos de MB o GB, o si habrá muchas versiones del
+  modelo: usa **Git LFS** o **DVC** en lugar de commitear los binarios.
+- Si los datos son sensibles y el repositorio va a ser público. Aquí se guardan
+  landmarks (no video ni imágenes), pero siguen siendo datos biométricos
+  derivados: asegúrate de tener consentimiento de los participantes.
+- Si el modelo cambia muy seguido: cada versión del `.joblib` genera un diff
+  binario nuevo. Para el demo actual no es un problema.
 
-En macOS/Linux:
+El entorno virtual (`.venv/`) y los archivos `.env` **nunca** se versionan: el
+primero es específico de cada máquina y el segundo puede contener secretos.
 
-```bash
-zip -r gesture_rush_artifacts.zip data models reports
-unzip gesture_rush_artifacts.zip -d .
-```
-
-Añade `assets` al ZIP solo si la máquina nueva no tiene Internet; si no, basta
-con `python scripts/download_assets.py`.
-
-Verifica que todo llegó:
+### Cómo actualizar los artefactos después de reentrenar
 
 ```bat
-python scripts/check_setup.py
+python scripts/run_train.py
+git add data/landmarks.csv models/gesture_model.joblib models/gesture_model.json reports/
+git commit -m "data: actualiza dataset, modelo e informes"
+git push
 ```
 
-### Opción B: regenerar los datos
+### Si necesitas regenerar o copiar los artefactos
 
 - **Con webcam y personas reales:** sigue la sección
   [Uso con webcam](#uso-con-webcam) y recolecta con `scripts/run_collect.py`.
 - **Sin webcam (solo para validar el pipeline):** genera datos sintéticos con
   `scripts/run_generate_synthetic.py`. Los resultados sintéticos **no**
   demuestran generalización a personas reales.
+- **Desde otra copia del proyecto:** si trabajas con un commit viejo o un ZIP
+  sin artefactos, puedes transferirlos. En la máquina original:
 
-### Estado de los artefactos del equipo original
+  ```powershell
+  powershell Compress-Archive -Path data,models,reports,assets -DestinationPath gesture_rush_artifacts.zip
+  ```
 
-Estos son los números de los artefactos que quedaron entrenados localmente
-(pueden cambiar si vuelves a entrenar):
+  En la máquina nueva, desde la raíz del proyecto:
+
+  ```powershell
+  powershell Expand-Archive -Path gesture_rush_artifacts.zip -DestinationPath . -Force
+  ```
+
+  En macOS/Linux:
+
+  ```bash
+  zip -r gesture_rush_artifacts.zip data models reports assets
+  unzip gesture_rush_artifacts.zip -d .
+  ```
+
+  Verifica que todo llegó con `python scripts/check_setup.py`.
+
+### Estado de los artefactos incluidos
+
+Estos son los números de los artefactos versionados (pueden cambiar si vuelves a
+entrenar):
 
 | Dato | Valor |
 |------|-------|
@@ -197,27 +224,11 @@ Estos son los números de los artefactos que quedaron entrenados localmente
 Los informes completos están en `reports/evaluation_report.md` y
 `reports/cv_report.md`.
 
-> Si quieres que estos artefactos viajen con Git en lugar de copiarlos a mano,
-> quita las líneas correspondientes de `.gitignore` y haz commit. El dataset
-> pesa ~9 MB y el modelo ~130 KB, así que es viable; para datasets mucho más
-> grandes usa Git LFS.
-
 ## Uso rápido sin webcam (datos sintéticos)
 
-Sirve para validar toda la tubería en un clon limpio. **Ojo:** si ya tienes el
-dataset o el modelo reales, no ejecutes esto con las rutas por defecto, porque
-`run_train.py` sobrescribe `models/gesture_model.*`.
-
-En un clon limpio, sin artefactos:
-
-```bat
-python scripts/run_generate_synthetic.py --participants 6 --per-class 150 --output data/landmarks_synthetic.csv
-python scripts/run_train.py --dataset data/landmarks_synthetic.csv
-python scripts/run_predict.py
-```
-
-Si ya copiaste los artefactos reales y quieres experimentar sin pisarlos, usa
-rutas alternativas:
+El clon ya trae el dataset y el modelo reales, así que este flujo es solo para
+validar el pipeline o experimentar **sin pisar** los artefactos del demo. Usa
+rutas alternativas para el dataset y el modelo:
 
 ```bat
 python scripts/run_generate_synthetic.py --participants 6 --per-class 150 --output data/landmarks_synthetic.csv
@@ -227,12 +238,22 @@ python scripts/run_train.py --dataset data/landmarks_synthetic.csv --model model
 `run_predict.py` siempre carga `models/gesture_model.joblib`; el modelo
 `synthetic_model.joblib` sirve para comparar métricas, no para la demo en vivo.
 
+Si borraste los artefactos y quieres reconstruir un modelo por defecto para
+probar la demo, **sin datos reales**:
+
+```bat
+python scripts/run_generate_synthetic.py --participants 6 --per-class 150 --output data/landmarks_synthetic.csv
+python scripts/run_train.py --dataset data/landmarks_synthetic.csv
+python scripts/run_predict.py
+```
+
 > Los resultados con datos sintéticos **no** demuestran generalización a personas
 > reales; solo validan el pipeline.
 
 ## Uso con webcam
 
-1. Descarga el modelo de MediaPipe (una sola vez):
+1. El modelo de MediaPipe ya viene en `assets/`. Si falta, descárgalo (una sola
+   vez):
 
    ```bat
    python scripts/download_assets.py
@@ -369,7 +390,7 @@ gesture_rush/
   predictor.py       Inferencia + suavizado temporal
 scripts/             Entradas ejecutables por fase + check_setup.py
 tests/               Pruebas pytest
-models/ data/ reports/ assets/   Artefactos locales (no versionados)
+models/ data/ reports/ assets/   Artefactos del demo (versionados)
 ```
 
 ## Extracción de features
