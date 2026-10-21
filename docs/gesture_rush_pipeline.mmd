@@ -1,0 +1,57 @@
+%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 55}, "theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Arial, sans-serif", "fontSize": "14px", "primaryColor": "#E8F1F2", "primaryTextColor": "#12355B", "primaryBorderColor": "#1B998B", "lineColor": "#12355B", "clusterBkg": "#FFFFFF", "clusterBorder": "#9CA3AF"}}}%%
+flowchart TD
+    subgraph B1["1 · CAPTURA"]
+        direction LR
+        WEB["Webcam<br/>1280x720 @ 30 FPS"]
+        CAM["camera.py<br/>Camera.read()"]
+        DET["hand_detector.py<br/>HandDetector.detect()"]
+        LM["21 landmarks<br/>(x, y, z) + lateralidad"]
+        WEB --> CAM --> DET --> LM
+    end
+
+    subgraph B2["2 · DATOS Y FEATURES · offline"]
+        direction LR
+        COL["collect_data.py<br/>recolector etiquetado"]
+        CSV[("data/landmarks.csv<br/>7.423 muestras reales")]
+        SYN["synthetic_data.py<br/>bootstrap sintético"]
+        FEAT["features.py<br/>normalize_landmarks()<br/>vector 42D"]
+        SPLIT["dataset.py<br/>split por participante"]
+        COL --> CSV
+        SYN --> CSV
+        CSV --> FEAT --> SPLIT
+    end
+
+    subgraph B3["3 · ENTRENAMIENTO Y EVALUACIÓN · offline"]
+        direction LR
+        MODELS["Random Forest<br/>SVM-RBF<br/>MLP"]
+        GRID["GridSearchCV<br/>GroupKFold<br/>macro-F1"]
+        BEST["mejor modelo<br/>MLP"]
+        EVAL["evaluate.py<br/>test único<br/>métricas + matriz"]
+        ART[("models/<br/>gesture_model.joblib<br/>gesture_model.json")]
+        MODELS --> GRID --> BEST --> EVAL --> ART
+    end
+
+    subgraph B4["4 · INFERENCIA · online"]
+        direction LR
+        PRED["predictor.py<br/>predict_proba()"]
+        SM["TemporalSmoother<br/>ventana 7 · 5 votos<br/>umbral 0.6"]
+        OUT["gesto estable<br/>confianza + FPS"]
+        PRED --> SM --> OUT
+    end
+
+    LM -->|entrenamiento| COL
+    LM -->|tiempo real| PRED
+    ART -->|carga| PRED
+
+    classDef capture fill:#E6F4F1,stroke:#1B998B,stroke-width:1.5px,color:#12355B;
+    classDef data fill:#E8EEF7,stroke:#12355B,stroke-width:1.5px,color:#12355B;
+    classDef model fill:#FFF1E6,stroke:#F4A261,stroke-width:1.5px,color:#7A4A1E;
+    classDef infer fill:#EAF5EA,stroke:#2A9D8F,stroke-width:1.5px,color:#12355B;
+    class WEB,CAM,DET,LM capture;
+    class COL,CSV,SYN,FEAT,SPLIT data;
+    class MODELS,GRID,BEST,EVAL,ART model;
+    class PRED,SM,OUT infer;
+    style B1 fill:#F7FBFA,stroke:#1B998B,stroke-width:1px;
+    style B2 fill:#F7F9FC,stroke:#12355B,stroke-width:1px;
+    style B3 fill:#FFFBF7,stroke:#F4A261,stroke-width:1px;
+    style B4 fill:#F7FCF7,stroke:#2A9D8F,stroke-width:1px;

@@ -21,6 +21,26 @@ from gesture_rush.train import train_and_select  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description="Entrenamiento y comparacion de modelos")
     parser.add_argument("--dataset", default=str(config.DATASET_CSV))
+    parser.add_argument(
+        "--model",
+        default=str(config.MODEL_PATH),
+        help="Ruta del modelo .joblib de salida",
+    )
+    parser.add_argument(
+        "--metadata",
+        default=str(config.MODEL_METADATA_PATH),
+        help="Ruta de los metadatos .json de salida",
+    )
+    parser.add_argument(
+        "--report",
+        default=str(config.REPORTS_DIR / "evaluation_report.md"),
+        help="Ruta del informe de evaluacion",
+    )
+    parser.add_argument(
+        "--confusion-plot",
+        default=str(config.REPORTS_DIR / "confusion_matrix.png"),
+        help="Ruta de la matriz de confusion",
+    )
     args = parser.parse_args()
 
     df = load_dataset(args.dataset)
@@ -30,7 +50,13 @@ def main() -> int:
         print("[aviso] El dataset contiene datos sinteticos: los resultados no "
               "demuestran generalizacion a personas reales.")
 
-    result = train_and_select(df)
+    result = train_and_select(
+        df,
+        model_path=args.model,
+        metadata_path=args.metadata,
+        evaluation_path=args.report,
+        confusion_plot_path=args.confusion_plot,
+    )
     comp = result["comparison"]
     print("\n== Comparacion en validacion (macro-F1) ==")
     for name, info in comp.items():
