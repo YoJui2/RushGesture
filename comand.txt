@@ -47,3 +47,12 @@ cd /d D:\RushGesture
 python scripts/run_cv.py
 start "" "reports\cv_confusion_matrix.png"
 La primera es la del split train/val/test; la segunda es la suma de los folds Leave-One-Participant-Out.
+
+
+cd RushGesture
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python scripts/check_setup.py
+python -m pytest -q        NONONONONONONONONONO
+python scripts/run_cv.py
