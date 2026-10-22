@@ -78,3 +78,12 @@ def test_synthetic_samples_are_separable(synthetic_df):
     means = {lab: X[y == lab].mean(axis=0) for lab in config.GESTURES}
     assert not np.allclose(means["fist"], means["open_palm"])
     assert not np.allclose(means["victory"], means["pointing_index"])
+
+
+def test_synthetic_generator_covers_every_gesture():
+    """Agregar una clase exige actualizarla en config y en el generador."""
+    assert set(synthetic_data.GESTURE_EXTENSIONS) == set(config.GESTURES)
+
+
+def test_every_gesture_has_spanish_label():
+    assert set(config.GESTURE_LABELS_ES) == set(config.GESTURES)

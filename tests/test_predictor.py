@@ -58,6 +58,16 @@ def test_predictor_dimension_mismatch(trained_model):
         Predictor(trained_model, metadata)
 
 
+def test_predictor_rejects_incompatible_class_set(trained_model):
+    """Un modelo de una campana anterior no debe predecir con el vocabulario actual."""
+    import copy
+
+    model = copy.deepcopy(trained_model)
+    model.classes_ = np.array(["open_palm", "fist"], dtype=object)
+    with pytest.raises(ValueError, match="config.GESTURES"):
+        Predictor(model, {"feature_spec": features.feature_spec()})
+
+
 def test_smoother_reaches_stability():
     smoother = TemporalSmoother(window=5, min_votes=3, confidence_threshold=0.5)
     results = [smoother.update("fist", 0.9) for _ in range(3)]

@@ -87,6 +87,28 @@ class DataCollector:
         return self.output_path
 
 
+def gesture_index_for_key(key: int, n_gestures: int, current: int = 0) -> int | None:
+    """Traduce una tecla del recolector al indice de gesto correspondiente.
+
+    ``1..9`` seleccionan los primeros nueve gestos y ``0`` el decimo. ``n`` y
+    ``p`` avanzan o retroceden de forma circular, de modo que el vocabulario
+    puede seguir creciendo sin cambiar las teclas. Devuelve ``None`` cuando la
+    tecla no selecciona ningun gesto.
+    """
+    if n_gestures <= 0:
+        return None
+    if ord("1") <= key <= ord("9"):
+        idx = key - ord("1")
+        return idx if idx < n_gestures else None
+    if key == ord("0"):
+        return 9 if n_gestures > 9 else None
+    if key == ord("n"):
+        return (current + 1) % n_gestures
+    if key == ord("p"):
+        return (current - 1) % n_gestures
+    return None
+
+
 def run_interactive(
     participant: str = "participant_01",
     session: str = "s01",
@@ -95,7 +117,9 @@ def run_interactive(
     """Bucle interactivo de recoleccion.
 
     Teclas:
-        1..5   seleccionar gesto objetivo
+        1..9   seleccionar uno de los primeros nueve gestos
+        0      seleccionar el decimo gesto
+        n / p  siguiente / anterior gesto
         SPACE  iniciar/detener captura
         q      guardar y salir
     """
@@ -118,7 +142,7 @@ def run_interactive(
     detector = HandDetector()
     current = 0
     capturing = False
-    print("Recolector. 1..5 = gesto, SPACE = capturar, q = guardar y salir.")
+    print("Recolector. 1..9/0 = gesto, n/p = cambiar, SPACE = capturar, q = salir.")
 
     try:
         while True:
@@ -135,7 +159,10 @@ def run_interactive(
                     collector.add(label, hand.landmarks, hand.handedness)
 
             counts = collector.counts()
-            _draw_hud(frame, cam.fps, label, capturing, len(hands), counts)
+            _draw_hud(
+                frame, cam.fps, label, capturing, len(hands), counts,
+                position=f"{current + 1}/{len(gestures)}",
+            )
 
             cv2.imshow("Gesture Rush - Recolector (Fase 2)", frame)
             key = cv2.waitKey(1) & 0xFF
@@ -143,11 +170,9 @@ def run_interactive(
                 break
             elif key == ord(" "):
                 capturing = not capturing
-            elif ord("1") <= key <= ord("9"):
-                idx = key - ord("1")
-                if idx < len(gestures):
-                    current = idx
-                    capturing = True
+            elif (idx := gesture_index_for_key(key, len(gestures), current)) is not None:
+                current = idx
+                capturing = True
     finally:
         detector.close()
         cam.release()
@@ -158,14 +183,15 @@ def run_interactive(
     return 0
 
 
-def _draw_hud(frame, fps, label, capturing, n_hands, counts) -> None:
+def _draw_hud(frame, fps, label, capturing, n_hands, counts, position="") -> None:
     import cv2
 
     status = "CAPTURANDO" if capturing else "EN PAUSA"
     color = (0, 0, 255) if capturing else (0, 255, 255)
     cv2.rectangle(frame, (0, 0), (frame.shape[1], 90), (0, 0, 0), -1)
-    cv2.putText(frame, f"Gesto: {label}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                0.8, (255, 255, 255), 2, cv2.LINE_AA)
+    tag = f"  [{position}]" if position else ""
+    cv2.putText(frame, f"Gesto: {label}{tag}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
     cv2.putText(frame, f"{status}  manos:{n_hands}  FPS:{fps:4.1f}",
                 (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
     balance = "  ".join(f"{k[:4]}:{v}" for k, v in counts.items())

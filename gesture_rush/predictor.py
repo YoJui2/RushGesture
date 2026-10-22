@@ -81,6 +81,17 @@ class Predictor:
                 "Incompatibilidad entre la especificacion de features y el modelo: "
                 f"modelo espera {actual_dim}, la especificacion define {expected_dim}"
             )
+        # Un modelo entrenado con otro vocabulario devolveria etiquetas que ya no
+        # existen en config.GESTURES, y el juego las interpretaria como validas.
+        expected_classes = set(config.GESTURES)
+        if self.classes and set(self.classes) != expected_classes:
+            missing = sorted(expected_classes - set(self.classes))
+            extra = sorted(set(self.classes) - expected_classes)
+            raise ValueError(
+                "El modelo no coincide con config.GESTURES: "
+                f"faltan {missing} y sobran {extra}. Reentrena con "
+                "scripts/run_train.py."
+            )
 
     @classmethod
     def load(cls, model_path: str | Path | None = None) -> "Predictor":

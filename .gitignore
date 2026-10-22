@@ -32,6 +32,13 @@ reports/*.txt
 reports/*.json
 !reports/cv_summary.json
 reports/synthetic_*
+
+# Artefactos de la campana anterior (vocabulario de 5 clases). Se conservan
+# localmente como referencia al empezar una recoleccion nueva; la evidencia
+# historica queda en el historial de git.
+data/legacy/
+models/legacy/
+reports/legacy/
 assets/*.task
 !assets/hand_landmarker.task
 

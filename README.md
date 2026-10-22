@@ -122,20 +122,23 @@ python -m pytest -q
 
 ## Datos y artefactos: qué viaja en el clon
 
-Este repositorio **incluye los artefactos del demo** para que un clon se pueda
-usar sin reentrenar: el dataset real, el modelo, sus metadatos, los informes y
-el modelo de MediaPipe. Así la demo funciona igual en otra máquina y las
-métricas publicadas se pueden reproducir sin depender de archivos externos.
+Este repositorio **versiona los artefactos del demo** para que un clon se pueda
+usar sin reentrenar: dataset real, modelo, metadatos, informes y el modelo de
+MediaPipe. Eso vale para una campaña cerrada. La campaña actual (10 clases)
+**todavía no tiene dataset ni modelo**: se recolecta y se entrena de nuevo, y los
+artefactos de la campaña anterior quedaron archivados en `data/legacy/`,
+`models/legacy/` y `reports/legacy/`.
 
 | Ruta | Contenido | ¿Viene en el clon? |
 |------|-----------|--------------------|
-| `data/landmarks.csv` | Dataset real de landmarks | Sí |
-| `models/gesture_model.joblib` | Modelo MLP entrenado | Sí |
-| `models/gesture_model.json` | Metadatos (clases, features, métricas) | Sí |
-| `reports/evaluation_report.md`, `reports/cv_report.md` | Informes de evaluación | Sí |
-| `reports/confusion_matrix.png`, `reports/cv_confusion_matrix.png` | Matrices de confusión | Sí |
-| `reports/cv_summary.json` | Resumen de la validación cruzada | Sí |
+| `data/landmarks.csv` | Dataset real de landmarks | No: se genera al recolectar |
+| `models/gesture_model.joblib` | Modelo entrenado | No: se genera con `run_train.py` |
+| `models/gesture_model.json` | Metadatos (clases, features, métricas) | No: se genera con `run_train.py` |
+| `reports/evaluation_report.md`, `reports/cv_report.md` | Informes de evaluación | No: se generan al entrenar |
+| `reports/confusion_matrix.png`, `reports/cv_confusion_matrix.png` | Matrices de confusión | No: se generan al entrenar |
+| `reports/cv_summary.json` | Resumen de la validación cruzada | No: se genera al validar |
 | `assets/hand_landmarker.task` | Modelo preentrenado de MediaPipe | Sí |
+| `data/legacy/`, `models/legacy/`, `reports/legacy/` | Artefactos de la campaña de 5 clases | No (locales, ignorados por git) |
 | `data/landmarks_synthetic.csv` | Dataset sintético temporal | No |
 | `models/synthetic_model.*` | Modelo de experimentos | No |
 | `.venv/`, `__pycache__/`, `.pytest_cache/` | Entorno local | No |
@@ -206,10 +209,11 @@ git push
 
   Verifica que todo llegó con `python scripts/check_setup.py`.
 
-### Estado de los artefactos incluidos
+### Campaña anterior (5 clases)
 
-Estos son los números de los artefactos versionados (pueden cambiar si vuelves a
-entrenar):
+El vocabulario anterior se archivó en `data/legacy/`, `models/legacy/` y
+`reports/legacy/`; no está versionado (la evidencia queda en el historial de
+git). Sus números fueron:
 
 | Dato | Valor |
 |------|-------|
@@ -220,6 +224,11 @@ entrenar):
 | Modelo elegido | MLP (capas 64, 32), 42 features |
 | Test reservado | accuracy 0,685 · macro-F1 0,675 |
 | Validación cruzada LOPO | accuracy 0,763 ± 0,058 · macro-F1 0,761 ± 0,061 |
+
+> Con 10 clases esos números **no** son comparables: cambia el vocabulario, el
+> dataset se recolecta de cero y hay que volver a evaluar. Mientras no exista
+> `models/gesture_model.joblib`, `run_predict.py` no arranca y `check_setup.py`
+> avisa que falta el modelo.
 
 Los informes completos están en `reports/evaluation_report.md` y
 `reports/cv_report.md`.
@@ -297,9 +306,10 @@ python scripts/run_predict.py
    python scripts/run_demo_landmarks.py
    ```
 
-4. Recolecta muestras por gesto y participante. Teclas: `1..5` gesto,
-   `SPACE` iniciar/detener captura, `q` guardar y salir. El recolector **agrega**
-   filas al CSV existente:
+4. Recolecta muestras por gesto y participante. Teclas: `1..9` y `0` eligen uno
+   de los diez gestos, `n`/`p` pasan al siguiente/anterior, `SPACE` inicia o
+   detiene la captura y `q` guarda y sale. El recolector **agrega** filas al CSV
+   existente:
 
    ```bat
    python scripts/run_collect.py --participant participant_01 --session s01
@@ -308,7 +318,8 @@ python scripts/run_predict.py
    Repite con varias personas y sesiones (objetivo inicial: 200–500 muestras por
    gesto y participante, con variación de distancia, orientación, velocidad e
    iluminación). Para que la división train/val/test funcione hacen falta al
-   menos **3 participantes**.
+   menos **3 participantes**, y **cada participante debe cubrir las diez
+   clases**: la validación Leave-One-Participant-Out compara personas completas.
 
 5. Entrena y compara modelos (RF, SVM-RBF y MLP):
 
@@ -371,8 +382,32 @@ temporal.
 
 ## Gestos reconocidos
 
-`open_palm`, `fist`, `thumbs_up`, `victory`, `pointing_index`. Para añadir clases,
-edítalas en `gesture_rush/config.py` y amplía el dataset.
+Diez clases, en el orden que mapean las teclas del recolector:
+
+| Tecla | Clase | Gesto |
+|---|---|---|
+| `1` | `open_palm` | Mano abierta |
+| `2` | `fist` | Puño cerrado |
+| `3` | `thumbs_up` | Pulgar arriba |
+| `4` | `victory` | Victoria (dos dedos) |
+| `5` | `pointing_index` | Índice extendido |
+| `6` | `ok_sign` | Señal OK |
+| `7` | `rock` | Cuernos (rock) |
+| `8` | `shaka` | Pulgar y meñique |
+| `9` | `pinky_up` | Meñique extendido |
+| `0` | `l_shape` | Pistola (mano en L) |
+
+Para añadir una clase hay que tocar tres sitios y ampliar el dataset:
+
+1. `GESTURES` y `GESTURE_LABELS_ES` en `gesture_rush/config.py`.
+2. `GESTURE_EXTENSIONS` en `gesture_rush/synthetic_data.py` (el generador
+   sintético y las pruebas exigen que cubra todas las clases).
+3. Recolectar la clase nueva con **todos** los participantes existentes.
+
+> `l_shape` y `pointing_index` difieren únicamente en el pulgar; es el par más
+> propenso a confundirse del vocabulario (medido: 1,20 σ de separación, el más
+> bajo de todos los candidatos). Si la evaluación lo confirma, conviene quedarse
+> con uno de los dos.
 
 ## Estructura
 

@@ -107,13 +107,22 @@ def canonical_template(extensions: dict[str, float]) -> np.ndarray:
     return np.concatenate([pts, z], axis=1)
 
 
-# Extension de cada dedo por gesto.
+# Extension de cada dedo por gesto. Debe cubrir todas las clases de
+# ``config.GESTURES``: el generador sintetico y las pruebas lo exigen.
+# La plantilla interpola cada dedo entre extendido y flexionado, asi que
+# ``ok_sign`` es solo una aproximacion (no puede representar el contacto entre
+# pulgar e indice) y sirve para validar la tuberia, no como evidencia.
 GESTURE_EXTENSIONS: dict[str, dict[str, float]] = {
     "open_palm": {"thumb": 1.0, "index": 1.0, "middle": 1.0, "ring": 1.0, "pinky": 1.0},
     "fist": {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0},
     "thumbs_up": {"thumb": 1.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0},
     "victory": {"thumb": 0.1, "index": 1.0, "middle": 1.0, "ring": 0.0, "pinky": 0.0},
     "pointing_index": {"thumb": 0.3, "index": 1.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0},
+    "ok_sign": {"thumb": 0.55, "index": 0.35, "middle": 1.0, "ring": 1.0, "pinky": 1.0},
+    "rock": {"thumb": 0.3, "index": 1.0, "middle": 0.0, "ring": 0.0, "pinky": 1.0},
+    "shaka": {"thumb": 1.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 1.0},
+    "pinky_up": {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 1.0},
+    "l_shape": {"thumb": 1.0, "index": 1.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0},
 }
 
 

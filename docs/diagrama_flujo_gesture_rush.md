@@ -100,7 +100,7 @@ flowchart TD
 
 ## 3. Decisiones que hay detrás
 
-- **MediaPipe no clasifica gestos.** Solo detecta la mano y devuelve 21 landmarks; los cinco gestos los decide un modelo entrenado en el proyecto.
+- **MediaPipe no clasifica gestos.** Solo detecta la mano y devuelve 21 landmarks; los gestos los decide un modelo entrenado en el proyecto.
 - **Una sola normalización.** `dataset.featurize()` y `Predictor.predict_proba()` usan la misma `normalize_landmarks()`; la especificación se guarda en el JSON y se valida al cargar.
 - **Features invariantes a posición y escala.** Se resta la muñeca y se divide por el tamaño de la palma; la orientación se conserva a propósito.
 - **División agrupada por participante.** Ninguna persona aparece en train y test a la vez; el test se evalúa una sola vez.
@@ -112,11 +112,16 @@ flowchart TD
 
 ## 4. Estado actual medido
 
+> Estas cifras corresponden a la campaña anterior, de 5 clases, archivada en
+> `data/legacy/`, `models/legacy/` y `reports/legacy/`. La campaña actual de 10
+> clases no tiene todavía dataset ni modelo entrenado.
+
 | Dato | Valor |
 |---|---|
 | Dataset | 7.423 muestras reales · 4 participantes · 3 sesiones |
-| Clases | `open_palm`, `fist`, `thumbs_up`, `victory`, `pointing_index` |
-| Modelo desplegado | MLP `(64, 32)`, `alpha=0.01` |
+| Clases | 5: `open_palm`, `fist`, `thumbs_up`, `victory`, `pointing_index` |
+| Vocabulario actual del código | 10: las 5 anteriores + `ok_sign`, `rock`, `shaka`, `pinky_up`, `l_shape` |
+| Modelo desplegado | MLP `(64, 32)`, `alpha=0.01` (campaña anterior) |
 | Test reservado | accuracy **0.6845** · F1 macro **0.6746** · F1 ponderado **0.6803** |
 | Inferencia | **0.0009 ms/muestra** (solo el clasificador) |
 | Validación cruzada LOPO | accuracy **0.7628 ± 0.0576** · F1 macro **0.7613 ± 0.0607** |

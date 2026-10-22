@@ -41,13 +41,19 @@ HAND_LANDMARKER_URL = (
 # Gestos
 # ----------------------------------------------------------------------------
 # Orden canonico de clases. Agregar clases aqui (y ampliar el dataset) es
-# suficiente para extender el sistema.
+# suficiente para extender el sistema. El orden se conserva para que las teclas
+# del recolector (1..9 y 0) sigan apuntando al mismo gesto entre sesiones.
 GESTURES: tuple[str, ...] = (
     "open_palm",
     "fist",
     "thumbs_up",
     "victory",
     "pointing_index",
+    "ok_sign",
+    "rock",
+    "shaka",
+    "pinky_up",
+    "l_shape",
 )
 
 GESTURE_LABELS_ES: dict[str, str] = {
@@ -56,6 +62,11 @@ GESTURE_LABELS_ES: dict[str, str] = {
     "thumbs_up": "Pulgar arriba",
     "victory": "Victoria (dos dedos)",
     "pointing_index": "Indice extendido",
+    "ok_sign": "Senal OK",
+    "rock": "Cuernos (rock)",
+    "shaka": "Shaka (pulgar y menique)",
+    "pinky_up": "Menique extendido",
+    "l_shape": "Pistola (mano en L)",
 }
 
 # ----------------------------------------------------------------------------
