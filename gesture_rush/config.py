@@ -85,7 +85,7 @@ WRIST_INDEX = 0
 # Indice de la camara fisica. En este equipo la webcam normal es la entrada 1
 # (la entrada 0 corresponde a otro dispositivo de video).
 # Si la camara enumera distinto en otro equipo:  set GESTURE_CAMERA_INDEX=0
-CAMERA_INDEX = int(os.environ.get("GESTURE_CAMERA_INDEX", "1"))
+CAMERA_INDEX = int(os.environ.get("GESTURE_CAMERA_INDEX", "0"))
 # Backend de captura: "auto" | "dshow" | "msmf" | "any".
 # "auto" prueba MSMF primero porque en esta camara es estable a 1280x720;
 # con DirectShow esa resolucion entrega fotogramas negros.
