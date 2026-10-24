@@ -17,7 +17,9 @@ mismas y la interfaz se adapta al monitor.
 
 from __future__ import annotations
 
+import math
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -231,92 +233,242 @@ def draw_check(
     pygame.draw.lines(surface, color, False, points, width)
 
 
+_GLYPH_UNITS = 120
+_GLYPH_SS = 4  # se dibuja 4x y se reduce: bordes suaves
+
+
+def _g(x: float, y: float) -> tuple[int, int]:
+    return (int(round(x * _GLYPH_SS)), int(round(y * _GLYPH_SS)))
+
+
 def _capsule(
     surface: pygame.Surface,
     color: tuple[int, int, int],
-    start: tuple[int, int],
-    end: tuple[int, int],
-    width: int,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    width: float,
 ) -> None:
     """Segmento con extremos redondeados (dedo o falange)."""
-    radius = max(1, int(width // 2))
-    pygame.draw.line(surface, color, start, end, width)
-    pygame.draw.circle(surface, color, start, radius)
-    pygame.draw.circle(surface, color, end, radius)
+    a = _g(*start)
+    b = _g(*end)
+    w = max(2, int(round(width * _GLYPH_SS)))
+    pygame.draw.line(surface, color, a, b, w)
+    radius = w // 2
+    pygame.draw.circle(surface, color, a, radius)
+    pygame.draw.circle(surface, color, b, radius)
+
+
+def _taper(
+    surface: pygame.Surface,
+    color: tuple[int, int, int],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    width_start: float,
+    width_end: float,
+) -> None:
+    """Falange que se afina hacia la punta."""
+    sx, sy = start
+    ex, ey = end
+    dx, dy = ex - sx, ey - sy
+    length = math.hypot(dx, dy)
+    if length < 0.01:
+        return
+    nx, ny = -dy / length, dx / length
+    quad = (
+        (sx + nx * width_start / 2, sy + ny * width_start / 2),
+        (ex + nx * width_end / 2, ey + ny * width_end / 2),
+        (ex - nx * width_end / 2, ey - ny * width_end / 2),
+        (sx - nx * width_start / 2, sy - ny * width_start / 2),
+    )
+    pygame.draw.polygon(surface, color, [_g(x, y) for x, y in quad])
+    pygame.draw.circle(surface, color, _g(sx, sy), int(width_start * _GLYPH_SS / 2))
+    pygame.draw.circle(surface, color, _g(ex, ey), int(width_end * _GLYPH_SS / 2))
 
 
 def _finger_glyph(
     surface: pygame.Surface,
-    x: int,
-    width: int,
-    length: int,
-    splay: int,
+    x: float,
+    width: float,
+    length: float,
+    splay: float,
     color: tuple[int, int, int] = AMBER,
 ) -> None:
-    """Dedo extendido: dos falanges con una curva suave hacia la punta."""
-    base = (x, 58)
-    knuckle = (x + int(round(splay * 0.45)), 58 - int(round(length * 0.52)))
-    tip = (x + splay, 58 - length)
-    _capsule(surface, color, base, knuckle, width)
-    _capsule(surface, color, knuckle, tip, max(7, width - 2))
+    """Dedo extendido: dos falanges que se afinan hacia la punta."""
+    base = (x, 58.0)
+    knuckle = (x + splay * 0.45, 58.0 - length * 0.5)
+    tip = (x + splay, 58.0 - length)
+    _taper(surface, color, base, knuckle, width, width * 0.95)
+    _taper(surface, color, knuckle, tip, width * 0.95, width * 0.78)
 
 
 def _knuckle_glyph(
     surface: pygame.Surface,
-    x: int,
-    width: int,
+    x: float,
+    width: float,
     color: tuple[int, int, int] = AMBER,
 ) -> None:
-    """Dedo recogido: apenas asoma sobre la palma."""
-    _capsule(surface, color, (x, 60), (x, 47), width)
+    """Dedo recogido: el nudillo asoma sobre la palma."""
+    _taper(surface, color, (x, 62.0), (x, 45.0), width, width * 0.88)
+
+
+def _rounded_polygon(
+    surface: pygame.Surface,
+    color: tuple[int, int, int],
+    points: tuple[tuple[float, float], ...],
+    radius: float,
+    steps: int = 10,
+) -> None:
+    """Poligono con esquinas suavizadas (bezier cuadratica en cada vertice)."""
+    outline: list[tuple[float, float]] = []
+    count = len(points)
+    for index in range(count):
+        prev = points[index - 1]
+        point = points[index]
+        nxt = points[(index + 1) % count]
+        v1 = (point[0] - prev[0], point[1] - prev[1])
+        v2 = (nxt[0] - point[0], nxt[1] - point[1])
+        len1 = math.hypot(*v1) or 1.0
+        len2 = math.hypot(*v2) or 1.0
+        v1 = (v1[0] / len1, v1[1] / len1)
+        v2 = (v2[0] / len2, v2[1] / len2)
+        r = min(radius, len1 / 2, len2 / 2)
+        start = (point[0] - v1[0] * r, point[1] - v1[1] * r)
+        end = (point[0] + v2[0] * r, point[1] + v2[1] * r)
+        for step in range(steps + 1):
+            t = step / steps
+            u = 1.0 - t
+            outline.append(
+                (
+                    u * u * start[0] + 2 * u * t * point[0] + t * t * end[0],
+                    u * u * start[1] + 2 * u * t * point[1] + t * t * end[1],
+                )
+            )
+    pygame.draw.polygon(surface, color, [_g(x, y) for x, y in outline])
 
 
 def _palm_glyph(surface: pygame.Surface, color: tuple[int, int, int] = AMBER) -> None:
-    pygame.draw.rect(surface, color, pygame.Rect(*PALM_RECT), border_radius=15)
-    pygame.draw.rect(surface, color, pygame.Rect(*WRIST_RECT), border_radius=9)
+    # Palma y muñeca en una sola silueta: mas ancha en los nudillos.
+    _rounded_polygon(
+        surface, color,
+        ((43, 50), (87, 50), (86, 88), (79, 104), (53, 104), (42, 88)),
+        11,
+    )
 
 
 def _thumb_out_glyph(surface: pygame.Surface, *, horizontal: bool = False) -> None:
     if horizontal:
         # Forma de "L": el pulgar sale de costado.
-        _capsule(surface, AMBER, (49, 80), (29, 73), 14)
+        _capsule(surface, AMBER, (50, 82), (28, 74), 14)
         return
-    _capsule(surface, AMBER, (50, 84), (41, 68), 15)
-    _capsule(surface, AMBER, (41, 68), (36, 51), 13)
-    pygame.draw.circle(surface, AMBER, (50, 84), 8)
+    _capsule(surface, AMBER, (52, 84), (42, 68), 15)
+    _capsule(surface, AMBER, (42, 68), (37, 51), 13)
 
 
 def _thumb_up_glyph(surface: pygame.Surface) -> None:
-    # Sale por fuera de la palma para que se lea el pulgar por encima del puño.
-    _capsule(surface, AMBER, (50, 86), (40, 64), 15)
-    _capsule(surface, AMBER, (40, 64), (36, 38), 13)
-    pygame.draw.circle(surface, AMBER, (50, 86), 8)
+    # Sale por fuera de la palma para que se lea por encima del puño.
+    _capsule(surface, AMBER, (52, 86), (42, 64), 15)
+    _capsule(surface, AMBER, (42, 64), (38, 37), 13)
 
 
 def _thumb_across_glyph(surface: pygame.Surface) -> None:
     """Pulgar plegado sobre la palma; tono mas oscuro para separarlo."""
-    _capsule(surface, AMBER_DEEP, (53, 86), (71, 75), 13)
+    _capsule(surface, AMBER_DEEP, (54, 88), (73, 76), 13)
+
+
+def _fist_creases(surface: pygame.Surface) -> None:
+    """Pliegues entre los dedos recogidos."""
+    for x in (57.0, 68.0, 78.0):
+        _capsule(surface, AMBER_DEEP, (x, 54), (x, 74), 2)
 
 
 def _ok_glyph(surface: pygame.Surface) -> None:
     """OK: el indice y el pulgar forman un anillo, el resto estirado."""
-    pygame.draw.circle(surface, AMBER, (54, 41), 11, 7)
-    _capsule(surface, AMBER, (50, 84), (46, 62), 14)
-    _capsule(surface, AMBER, (46, 62), (53, 51), 12)
+    pygame.draw.circle(
+        surface, AMBER, _g(52, 43), int(11 * _GLYPH_SS), int(7 * _GLYPH_SS)
+    )
+    _capsule(surface, AMBER, (52, 88), (45, 66), 14)
+    _capsule(surface, AMBER, (45, 66), (47, 54), 12)
     for x, width, length, splay in FINGER_SPECS[1:]:
         _finger_glyph(surface, x, width, length, splay)
     _palm_glyph(surface)
 
 
+def _outline_glyph(
+    surface: pygame.Surface, color: tuple[int, int, int] = AMBER_DEEP
+) -> None:
+    """Contorno del dibujo completo; le da acabado de icono."""
+    mask = pygame.mask.from_surface(surface)
+    outline = mask.outline()
+    if len(outline) > 2:
+        pygame.draw.lines(surface, color, True, outline, int(_GLYPH_SS * 1.6))
+
+
+_HAND_DIR = Path(__file__).resolve().parent.parent / "assets" / "hands"
+_HAND_ASSETS: dict[str, pygame.Surface | None] = {}
+# Ajustes de orientacion por gesto: (espejo horizontal, giro en grados).
+_HAND_TURNS: dict[str, tuple[bool, int]] = {"l_shape": (True, 90)}
+
+
+def _hand_asset(gesture: str) -> pygame.Surface | None:
+    """Imagen del gesto (assets/hands/<gesto>.png), recortada y orientada.
+
+    Devuelve ``None`` si no hay archivo: la pantalla usa el dibujo vectorial.
+    """
+    if gesture in _HAND_ASSETS:
+        return _HAND_ASSETS[gesture]
+
+    path = _HAND_DIR / f"{gesture}.png"
+    image: pygame.Surface | None = None
+    if path.exists():
+        image = pygame.image.load(str(path))
+        if pygame.display.get_surface() is not None:
+            image = image.convert_alpha()
+        bounds = image.get_bounding_rect(min_alpha=10)
+        if bounds.width and bounds.height:
+            image = image.subsurface(bounds).copy()
+        mirror, angle = _HAND_TURNS.get(gesture, (False, 0))
+        if mirror:
+            image = pygame.transform.flip(image, True, False)
+        if angle:
+            image = pygame.transform.rotate(image, angle)
+
+    _HAND_ASSETS[gesture] = image
+    return image
+
+
+def _fit_hand(image: pygame.Surface, size: int) -> pygame.Surface:
+    """Escala la imagen sin deformar y la centra en un cuadro cuadrado."""
+    target = max(1, int(round(size * 0.96)))
+    width, height = image.get_size()
+    scale = min(target / width, target / height)
+    scaled = pygame.transform.smoothscale(
+        image, (max(1, int(width * scale)), max(1, int(height * scale)))
+    )
+    canvas = pygame.Surface((size, size), pygame.SRCALPHA)
+    canvas.blit(scaled, scaled.get_rect(center=(size // 2, size // 2)))
+    return canvas
+
+
 def hand_glyph(gesture: str | None, size: int) -> pygame.Surface:
-    """Icono vectorial de la mano para el gesto pedido."""
+    """Icono de la mano para el gesto pedido.
+
+    Usa la imagen de ``assets/hands`` si existe; si no, dibuja el icono
+    vectorial.
+    """
     gesture = gesture or "fist"
     key = (gesture, size)
     cached = _GLYPH_CACHE.get(key)
     if cached is not None:
         return cached
 
-    surf = pygame.Surface((120, 120), pygame.SRCALPHA)
+    asset = _hand_asset(gesture)
+    if asset is not None:
+        icon = _fit_hand(asset, size)
+        _GLYPH_CACHE[key] = icon
+        return icon
+
+    canvas = _GLYPH_UNITS * _GLYPH_SS
+    surf = pygame.Surface((canvas, canvas), pygame.SRCALPHA)
 
     if gesture == "ok_sign":
         _ok_glyph(surf)
@@ -335,7 +487,9 @@ def hand_glyph(gesture: str | None, size: int) -> pygame.Surface:
         _palm_glyph(surf)
         if not thumb:
             _thumb_across_glyph(surf)
+            _fist_creases(surf)
 
+    _outline_glyph(surf)
     scaled = pygame.transform.smoothscale(surf, (size, size))
     _GLYPH_CACHE[key] = scaled
     return scaled

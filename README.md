@@ -370,6 +370,10 @@ Teclas: en el menú, `1`/`2`/`3` o clic eligen modo, **`P` o las píldoras
 (desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese jugador
 para probar el cierre de ronda, la cadena y el marcador.
 
+Los iconos de cada gesto son PNG en `assets/hands/` (uno por clase). Si falta
+alguno, la interfaz dibuja un icono vectorial de respaldo, así que la app
+funciona igual sin esas imágenes.
+
 ### Duelo de gestos
 
 El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punto.
@@ -530,6 +534,7 @@ gesture_rush/
   ui.py              Interfaz Pygame: menú, duelo, cadena y modo prueba
 scripts/             Entradas ejecutables por fase + check_setup.py
 tests/               Pruebas pytest
+assets/hands/        Iconos PNG de los 10 gestos (respaldo vectorial si falta)
 models/ data/ reports/ assets/   Artefactos del demo (versionados)
 ```
 
