@@ -130,6 +130,33 @@ def test_camera_pipeline_switches_to_one_band_in_practice():
     assert pipeline.tracker.num_players == 2
 
 
+def test_demo_shows_thumbs_up_to_approve_before_starting():
+    duel = Duel(num_players=2, rng=random.Random(1))
+    pipeline = DemoPipeline(duel, rng=random.Random(2))
+
+    _frame, readings = pipeline.read(0.0)
+    assert all(not reading.present for reading in readings)
+
+    pipeline.force(0)
+    _frame, readings = pipeline.read(0.1)
+    assert readings[0].stable == "thumbs_up"
+    assert readings[1].stable is None
+
+    pipeline.force(1)
+    _frame, readings = pipeline.read(0.2)
+    assert [reading.stable for reading in readings] == ["thumbs_up", "thumbs_up"]
+
+    # Al arrancar, el pulgar con el que se aprobo no vale como acierto.
+    duel.start(0.3)
+    pipeline.read(0.4)  # cuenta atras
+    duel.tick(3.4)
+    _frame, readings = pipeline.read(3.5)
+
+    assert duel.phase == "playing"
+    assert all(reading.stable != "thumbs_up" for reading in readings)
+    assert all(value is None for value in duel.times_ms.values())
+
+
 def test_force_makes_a_player_advance_once():
     race = ChainRace(chain_length=3, rng=random.Random(7))
     pipeline = DemoPipeline(race, rng=random.Random(8), min_delay=30.0, max_delay=31.0)

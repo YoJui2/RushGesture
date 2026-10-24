@@ -8,11 +8,11 @@ Uso:
     python scripts/run_game.py --game practice # diagnostico del modelo
 
 Teclas:
-    ESPACIO / ENTER  iniciar ronda o carrera
+    ESPACIO / ENTER  iniciar ronda o carrera (o pulgar arriba de todos)
     R                reiniciar la partida (en Prueba, el voto temporal)
     ESC              volver al menu (desde el menu, salir)
     1 / 2 / 3        en el menu, elegir minijuego
-    1 / 2            en --demo, forzar el acierto de ese jugador
+    1 / 2            en --demo: pulgar arriba fuera de ronda, acierto en ronda
 """
 
 from __future__ import annotations

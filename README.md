@@ -365,10 +365,11 @@ python scripts/run_game.py --game practice    :: diagnostico del modelo
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
 
 Teclas: en el menú, `1`/`2`/`3` o clic eligen modo, **`P` o las píldoras
-«1 jugador / 2 jugadores» cambian la cantidad** y `ENTER` arranca el duelo;
-`ESPACIO`/`ENTER` inicia ronda o carrera, `R` reinicia, `ESC` vuelve al menú
-(desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese jugador
-para probar el cierre de ronda, la cadena y el marcador.
+«1 jugador / 2 jugadores» cambian la cantidad** y `ENTER` arranca el duelo.
+Para iniciar una ronda o carrera alcanza con que **todos los jugadores levanten
+el pulgar** (👍), o `ESPACIO`/`ENTER`/clic en el botón. `R` reinicia, `ESC`
+vuelve al menú (desde el menú, sale). En `--demo`, `1` y `2` simulan el pulgar
+arriba fuera de ronda y el acierto durante la ronda.
 
 Los iconos de cada gesto son PNG en `assets/hands/` (uno por clase). Si falta
 alguno, la interfaz dibuja un icono vectorial de respaldo, así que la app
@@ -382,6 +383,7 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
 - El primero en acertar se lleva el punto; la ronda espera hasta 2 s al rival
   para registrar su tiempo, y la pantalla muestra la diferencia en segundos.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
+- La ronda arranca cuando **todos levantan el pulgar** (o con el botón/`ENTER`).
 - Al terminar las rondas se muestra el ganador de la partida y el historial.
 - **Solo (`--players 1`)**: contrarreloj. Sin rival, la ronda cierra en cuanto
   acertás y el panel muestra tu tiempo; la partida resume las rondas jugadas y
@@ -401,6 +403,7 @@ avanza a su ritmo completando el gesto que le toca.
 - El marcador inferior muestra progreso, tiempo total y tiempo medio por gesto.
 - **Solo (`--players 1`)**: contrarreloj. La carrera termina al completar la
   cadena y el resumen muestra el tiempo total y la media por gesto.
+- La carrera arranca cuando **todos levantan el pulgar** (o con el botón/`ENTER`).
 
 ### Prueba del modelo
 

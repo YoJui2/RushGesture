@@ -958,6 +958,67 @@ class MenuScreen(Screen):
             )
 
 
+class ThumbsUpGate:
+    """Inicia la partida cuando todos los jugadores levantan el pulgar.
+
+    Se arma al entrar en una fase de espera. Si alguien ya venia con el pulgar
+    arriba en ese momento, tiene que bajarlo y volver a levantarlo: asi una
+    ronda no encadena sola cuando el gesto objetivo era el pulgar.
+    """
+
+    def __init__(self, num_players: int, gesture: str = "thumbs_up") -> None:
+        self.num_players = max(1, num_players)
+        self.gesture = gesture
+        self.ready = [False] * self.num_players
+        self._locked = [False] * self.num_players
+        self._active = False
+
+    def reset(self) -> None:
+        self.ready = [False] * self.num_players
+        self._locked = [False] * self.num_players
+        self._active = False
+
+    def update(self, labels: list[str | None], active: bool) -> bool:
+        """Devuelve ``True`` cuando todos dieron el pulgar."""
+        if not active:
+            self.reset()
+            return False
+
+        showing = [
+            (labels[i] if i < len(labels) else None) == self.gesture
+            for i in range(self.num_players)
+        ]
+        if not self._active:
+            # Primer frame de la espera: lo que ya estaba arriba queda bloqueado.
+            self._active = True
+            self._locked = list(showing)
+            self.ready = [False] * self.num_players
+            return False
+
+        for index in range(self.num_players):
+            if not showing[index]:
+                self._locked[index] = False
+                self.ready[index] = False
+            elif not self._locked[index]:
+                self.ready[index] = True
+        return all(self.ready)
+
+    def is_locked(self, player: int) -> bool:
+        return self._locked[player]
+
+
+def start_hint(gate: ThumbsUpGate) -> str:
+    """Texto que explica a quien le falta el pulgar."""
+    if gate.num_players == 1:
+        return "Pulgar arriba para empezar"
+    missing = [str(i + 1) for i in range(gate.num_players) if not gate.ready[i]]
+    if not missing:
+        return "¡Listo!"
+    if len(missing) == gate.num_players:
+        return "Los dos con el pulgar arriba para empezar"
+    return f"Falta el pulgar del jugador {' y '.join(missing)}"
+
+
 class DuelScreen(Screen):
     """Partida del modo clásico."""
 
@@ -973,6 +1034,7 @@ class DuelScreen(Screen):
         self.button_rect = pygame.Rect(MARGIN, 704, 300, 64)
         self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
         self.hover_button = False
+        self.gate = ThumbsUpGate(self.duel.num_players)
 
     # -- Eventos -------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -1010,12 +1072,19 @@ class DuelScreen(Screen):
             self.error = str(exc)
 
         self.duel.tick(now)
+        labels: list[str | None] = [None] * self.duel.num_players
         for reading in self.readings:
             score = self.duel.players[reading.player]
             score.live_label = reading.label
             score.live_confidence = reading.confidence
+            if 0 <= reading.player < len(labels):
+                labels[reading.player] = reading.stable
             if reading.stable is not None:
                 self.duel.observe(reading.player, reading.stable, reading.confidence, now)
+
+        # Pulgar arriba de todos = iniciar (ademas del boton y de ENTER).
+        if self.gate.update(labels, self._can_start()):
+            self._start_round()
 
         mouse = pygame.mouse.get_pos()
         self.hover_button = self.button_rect.collidepoint(mouse) and self._can_start()
@@ -1091,8 +1160,12 @@ class DuelScreen(Screen):
         players = "1 jugador" if duel.num_players == 1 else f"{duel.num_players} jugadores"
         draw_text(
             surface, fonts,
-            f"{players} · {duel.total_rounds or '∞'} rondas · pulsen iniciar",
-            18, DIM, (cx, hero.y + 168), anchor="midtop",
+            f"{players} · {duel.total_rounds or '∞'} rondas",
+            16, DIM, (cx, hero.y + 156), anchor="midtop",
+        )
+        draw_text(
+            surface, fonts, start_hint(self.gate), 18, AMBER,
+            (cx, hero.y + 184), bold=True, anchor="midtop",
         )
 
     def _draw_result_text(self, surface: pygame.Surface, cx: int) -> None:
@@ -1129,8 +1202,8 @@ class DuelScreen(Screen):
                     20, MUTED, (cx, hero.y + 152), anchor="midtop",
                 )
             draw_text(
-                surface, fonts, "Pulsen iniciar para jugar otra partida",
-                18, DIM, (cx, hero.y + 186), anchor="midtop",
+                surface, fonts, start_hint(self.gate),
+                18, AMBER, (cx, hero.y + 186), bold=True, anchor="midtop",
             )
             return
 
@@ -1142,7 +1215,8 @@ class DuelScreen(Screen):
                 (cx, hero.y + 92), bold=True, anchor="midtop",
             )
             draw_text(
-                surface, fonts, "Se acabó el tiempo. Pulsen iniciar para otra ronda.",
+                surface, fonts,
+                f"Se acabó el tiempo. {start_hint(self.gate)}.",
                 20, MUTED, (cx, hero.y + 152), anchor="midtop",
             )
             return
@@ -1155,7 +1229,7 @@ class DuelScreen(Screen):
             time_ms = record.times_ms.get(0) if record else None
             draw_text(
                 surface, fonts,
-                f"Tiempo: {format_seconds(time_ms)}. Pulsen iniciar para otra ronda.",
+                f"Tiempo: {format_seconds(time_ms)}. {start_hint(self.gate)}.",
                 20, MUTED, (cx, hero.y + 152), anchor="midtop",
             )
             return
@@ -1166,9 +1240,9 @@ class DuelScreen(Screen):
         )
         margin = record.margin_ms if record else None
         if margin is not None:
-            subtitle = f"Diferencia de {format_seconds(margin)}. Pulsen iniciar para otra ronda."
+            subtitle = f"Diferencia de {format_seconds(margin)}. {start_hint(self.gate)}."
         else:
-            subtitle = "Sin rival en el tiempo. Pulsen iniciar para otra ronda."
+            subtitle = f"Sin rival en el tiempo. {start_hint(self.gate)}."
         draw_text(surface, fonts, subtitle, 20, MUTED, (cx, hero.y + 152), anchor="midtop")
 
     def _draw_progress(self, surface: pygame.Surface) -> None:
@@ -1220,6 +1294,12 @@ class DuelScreen(Screen):
         duel = self.duel
         score = duel.players[index]
         solo = duel.num_players == 1
+        if self._can_start():
+            if self.gate.ready[index]:
+                return "Pulgar arriba · listo"
+            if self.gate.is_locked(index):
+                return "Bajá el pulgar y volvé a levantarlo"
+            return "Levantá el pulgar para empezar"
         if duel.phase == PHASE_PLAYING:
             if duel.times_ms.get(index) is not None:
                 return "¡Acertado!" if solo else "¡Acertado! esperando al rival"
@@ -1355,6 +1435,7 @@ class ChainScreen(Screen):
         self.button_rect = pygame.Rect(MARGIN, 704, 300, 64)
         self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
         self.hover_button = False
+        self.gate = ThumbsUpGate(self.race.num_players)
 
     # -- Eventos -------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -1392,12 +1473,19 @@ class ChainScreen(Screen):
             self.error = str(exc)
 
         self.race.tick(now)
+        labels: list[str | None] = [None] * self.race.num_players
         for reading in self.readings:
             score = self.race.players[reading.player]
             score.live_label = reading.label
             score.live_confidence = reading.confidence
+            if 0 <= reading.player < len(labels):
+                labels[reading.player] = reading.stable
             if reading.stable is not None:
                 self.race.observe(reading.player, reading.stable, reading.confidence, now)
+
+        # Pulgar arriba de todos = iniciar la carrera.
+        if self.gate.update(labels, self._can_start()):
+            self._start_race()
 
         mouse = pygame.mouse.get_pos()
         self.hover_button = self.button_rect.collidepoint(mouse) and self._can_start()
@@ -1444,9 +1532,12 @@ class ChainScreen(Screen):
             )
             draw_text(surface, fonts, subtitle, 22, MUTED, (cx, hero.y + 118), anchor="midtop")
             draw_text(
-                surface, fonts,
-                f"{race.chain_length} gestos en orden · pulsen iniciar para sortear la cadena",
-                18, DIM, (cx, hero.y + 164), anchor="midtop",
+                surface, fonts, f"{race.chain_length} gestos en orden",
+                16, DIM, (cx, hero.y + 156), anchor="midtop",
+            )
+            draw_text(
+                surface, fonts, start_hint(self.gate), 18, AMBER,
+                (cx, hero.y + 184), bold=True, anchor="midtop",
             )
             return
 
@@ -1489,8 +1580,12 @@ class ChainScreen(Screen):
                 (cx, hero.y + 102), bold=True, anchor="midtop",
             )
             draw_text(
-                surface, fonts, "Pulsen iniciar para otra carrera.", 19, MUTED,
+                surface, fonts, "Se acabó el tiempo.", 19, MUTED,
                 (cx, hero.y + 160), anchor="midtop",
+            )
+            draw_text(
+                surface, fonts, start_hint(self.gate), 18, AMBER,
+                (cx, hero.y + 194), bold=True, anchor="midtop",
             )
             return
 
@@ -1504,7 +1599,11 @@ class ChainScreen(Screen):
                 f"{race.num_steps} gestos en {format_seconds(score.finished_ms)}"
                 f" · media {format_seconds(race.average_step_ms(winner))}"
             )
-            draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 160), anchor="midtop")
+            draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 158), anchor="midtop")
+            draw_text(
+                surface, fonts, start_hint(self.gate), 18, AMBER,
+                (cx, hero.y + 192), bold=True, anchor="midtop",
+            )
             return
 
         draw_text(
@@ -1520,7 +1619,11 @@ class ChainScreen(Screen):
                 detail += f" · diferencia de {format_seconds(margin)}"
             else:
                 detail += f" · el jugador {rival.index + 1} quedó en {rival.progress}/{race.num_steps}"
-        draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 160), anchor="midtop")
+        draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 158), anchor="midtop")
+        draw_text(
+            surface, fonts, start_hint(self.gate), 18, AMBER,
+            (cx, hero.y + 192), bold=True, anchor="midtop",
+        )
 
     def _draw_panel(self, surface: pygame.Surface, index: int, rect: pygame.Rect) -> None:
         fonts = self.app.fonts
@@ -1547,14 +1650,14 @@ class ChainScreen(Screen):
         if winner_now:
             draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
         draw_text(
-            surface, fonts, f"{score.progress}/{race.num_steps}", 22, MUTED,
-            (rect.right - 18, rect.y + 268), anchor="topright",
+            surface, fonts, f"{score.progress}/{race.num_steps or race.chain_length}",
+            22, MUTED, (rect.right - 18, rect.y + 268), anchor="topright",
         )
         self._draw_progress_dots(surface, rect, score)
 
     def _draw_progress_dots(self, surface: pygame.Surface, rect: pygame.Rect, score) -> None:
         race = self.race
-        total = max(1, race.num_steps)
+        total = max(1, race.num_steps or race.chain_length)
         y = rect.y + 324
         for i in range(total):
             x = rect.x + 24 + i * 30

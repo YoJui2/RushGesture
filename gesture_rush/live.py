@@ -126,6 +126,7 @@ class DemoPipeline:
         # Modo Prueba: gesto sostenido por jugador y suavizado real.
         self._held: dict[int, tuple[str, float, float]] = {}
         self._practice_smoothers: dict[int, TemporalSmoother] = {}
+        self._last_phase: str | None = None
 
     # -- API esperada por la interfaz ---------------------------------------
     def bind(self, game) -> None:
@@ -141,16 +142,24 @@ class DemoPipeline:
         self._forced.clear()
         self._held.clear()
         self._practice_smoothers.clear()
+        self._last_phase = None
 
     def read(
         self, now: float | None = None, *, probe: bool = False
     ) -> tuple[np.ndarray | None, list[PlayerReading]]:
         now = time.perf_counter() if now is None else now
-        if self.game.phase == "playing":
+        phase = self.game.phase
+        if phase == "playing":
+            if self._last_phase == "countdown":
+                # El pulgar con el que se aprobo no debe contar como acierto.
+                self._forced.clear()
             if getattr(self.game, "practice", False):
                 self._simulate_practice(now)
             else:
                 self._simulate(now)
+        else:
+            self._simulate_waiting()
+        self._last_phase = phase
 
         readings: list[PlayerReading] = []
         for player in range(self.game.num_players):
@@ -221,6 +230,16 @@ class DemoPipeline:
                     self._rng.choice(others),
                     self._rng.uniform(0.30, 0.58),
                 )
+
+    def _simulate_waiting(self) -> None:
+        """Fuera de ronda solo cambia el pulgar de los jugadores forzados.
+
+        En ``--demo`` las teclas 1 y 2 hacen de "pulgar arriba" para aprobar el
+        inicio sin camara; el resto conserva su ultima lectura.
+        """
+        for player in self._forced:
+            if 0 <= player < self.game.num_players:
+                self._labels[player] = ("thumbs_up", 0.96)
 
     def _simulate_practice(self, now: float) -> None:
         """Modo Prueba: cada jugador sostiene un gesto libre unos segundos.
