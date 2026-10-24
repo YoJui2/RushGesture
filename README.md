@@ -1,9 +1,10 @@
 # Gesture Rush
 
 Videojuego competitivo de reconocimiento de gestos por webcam. Este repositorio
-corresponde al **demo del núcleo reconocedor** (Fases 1–4 del plan): captura de
-cámara, detección de manos, extracción de features, dataset, entrenamiento y
-comparación de tres clasificadores propios e inferencia en tiempo real.
+corresponde al **demo del núcleo reconocedor y del minijuego clásico** (Fases
+1–6 del plan): captura de cámara, detección de manos, extracción de features,
+dataset, entrenamiento y comparación de tres clasificadores propios, inferencia
+en tiempo real y una interfaz de juego en Pygame.
 
 > El detector de manos (MediaPipe) es un modelo preentrenado; **la clasificación
 > de gestos, el dataset y su evaluación son trabajo propio**.
@@ -16,9 +17,11 @@ comparación de tres clasificadores propios e inferencia en tiempo real.
 | 2 | Recolector + dataset etiquetado | Implementado |
 | 3 | Random Forest / SVM-RBF / MLP + evaluación | Implementado |
 | 4 | Predictor en tiempo real con suavizado temporal | Implementado |
+| 5 | Asociación de manos a jugadores, rondas y puntuación | Implementado |
+| 6 | Interfaz visual: menú + «Duelo de gestos» | En curso |
 
-Las fases 5–8 del prompt (juego multijugador, UI completa, pruebas con tres
-participantes) quedan **fuera** de este demo.
+Quedan pendientes la calibración de regiones, el modo técnico con landmarks
+sobre el vídeo y las pruebas con tres personas en la máquina real (fases 6–8).
 
 ## Requisitos
 
@@ -339,6 +342,39 @@ python scripts/run_predict.py
    python scripts/run_predict.py
    ```
 
+## Jugar: «Duelo de gestos» (Fase 6)
+
+Menú + minijuego clásico con **una sola cámara**. Cada jugador ocupa una mitad
+del encuadre (izquierda/derecha) y compite por hacer el gesto objetivo primero.
+
+```bat
+python scripts/run_game.py            :: camara + modelo entrenado
+python scripts/run_game.py --demo     :: sin camara: jugadores simulados
+```
+
+| Opción | Para qué |
+|--------|----------|
+| `--demo` | No abre cámara ni carga el modelo; dos jugadores simulados. Ideal para trabajar la interfaz. |
+| `--players 2\|3` | Cantidad de franjas en el encuadre (2 por defecto). |
+| `--rounds N` | Rondas por partida (5 por defecto, `0` = sin límite). |
+| `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
+
+Teclas: `ESPACIO`/`ENTER` inicia ronda, `R` reinicia la partida, `ESC` vuelve al
+menú (desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese
+jugador para probar el cierre de ronda y el marcador.
+
+Reglas implementadas:
+
+- Cuenta atrás de 3 s, luego 8 s para hacer el gesto (barra de progreso).
+- El primero en acertar se lleva el punto; la ronda espera hasta 2 s al rival
+  para registrar su tiempo, y la pantalla muestra la diferencia en ms.
+- Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
+- Al terminar las rondas se muestra el ganador de la partida y el marcador.
+
+La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la ventana,
+así que funciona igual en cualquier monitor. Si la cámara o el modelo faltan,
+usá `--demo`; es también el modo de respaldo para la feria.
+
 ## Comandos de referencia
 
 | Comando | Para qué |
@@ -352,6 +388,8 @@ python scripts/run_predict.py
 | `python scripts/run_train.py` | Entrena, compara y guarda el modelo |
 | `python scripts/run_cv.py` | Validación cruzada por participante |
 | `python scripts/run_predict.py` | Predicción en tiempo real |
+| `python scripts/run_game.py` | Interfaz del Duelo de gestos (Fase 6) |
+| `python scripts/run_game.py --demo` | Interfaz sin cámara ni modelo |
 | `python -m pytest -q` | Ejecuta las pruebas |
 
 ## Pruebas
@@ -423,6 +461,10 @@ gesture_rush/
   train.py           Entrenamiento y comparación (RF / SVM / MLP)
   evaluate.py        Métricas, matriz de confusión, informes
   predictor.py       Inferencia + suavizado temporal
+  player_tracker.py  Asociación de manos a jugadores (franjas del encuadre)
+  game.py            Reglas del Duelo de gestos: rondas, tiempos y puntos
+  live.py            Fuentes de datos para la UI (cámara real / demo)
+  ui.py              Interfaz Pygame: menú y pantalla de partida
 scripts/             Entradas ejecutables por fase + check_setup.py
 tests/               Pruebas pytest
 models/ data/ reports/ assets/   Artefactos del demo (versionados)

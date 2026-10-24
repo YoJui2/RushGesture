@@ -12,5 +12,6 @@ mediapipe==0.10.14
 scikit-learn==1.5.2
 pandas==2.2.3
 matplotlib==3.9.2
+pygame==2.6.1
 joblib==1.4.2
 pytest==8.3.3
