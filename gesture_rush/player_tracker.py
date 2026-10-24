@@ -13,6 +13,7 @@ El modulo no importa MediaPipe: trabaja con cualquier objeto que exponga
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
@@ -36,6 +37,11 @@ class PlayerReading:
     landmarks: np.ndarray | None = None
     handedness: str | None = None
     present: bool = False
+    # Solo se rellenan en el modo Prueba (``probe=True``).
+    top: list[tuple[str, float]] | None = None
+    vote_label: str | None = None
+    vote_count: int = 0
+    vote_total: int = 0
 
 
 def zone_center(player: int, num_players: int) -> float:
@@ -90,6 +96,7 @@ class DuelTracker:
     ) -> None:
         self.predictor = predictor
         self.num_players = num_players
+        self.last_inference_ms = 0.0
         self._smoothers = [
             TemporalSmoother(
                 window=window,
@@ -99,20 +106,45 @@ class DuelTracker:
             for _ in range(num_players)
         ]
 
-    def update(self, hands: Sequence["HandResult"]) -> list[PlayerReading]:
-        """Devuelve una lectura por jugador, tenga mano o no."""
+    def update(
+        self,
+        hands: Sequence["HandResult"],
+        *,
+        probe: bool = False,
+    ) -> list[PlayerReading]:
+        """Devuelve una lectura por jugador, tenga mano o no.
+
+        Con ``probe=True`` se anade el top-3 del clasificador y el estado del
+        voto temporal (modo Prueba).
+        """
         assignment = assign_hands(hands, self.num_players)
         readings: list[PlayerReading] = []
+        inference_seconds = 0.0
         for player in range(self.num_players):
             hand = assignment.get(player)
             smoother = self._smoothers[player]
             if hand is None:
                 smoother.update(None, 0.0)
-                readings.append(PlayerReading(player=player))
+                readings.append(
+                    PlayerReading(
+                        player=player,
+                        vote_label=None,
+                        vote_count=0,
+                        vote_total=smoother.filled,
+                    )
+                )
                 continue
 
-            label, confidence = self.predictor.predict(hand.landmarks)
+            started = time.perf_counter()
+            if probe:
+                label, confidence, top = self.predictor.predict_top_k(hand.landmarks, 3)
+            else:
+                label, confidence = self.predictor.predict(hand.landmarks)
+                top = None
+            inference_seconds += time.perf_counter() - started
+
             stable = smoother.update(None if label == NO_HAND else label, confidence)
+            vote_label, vote_count = smoother.snapshot()
             readings.append(
                 PlayerReading(
                     player=player,
@@ -122,8 +154,13 @@ class DuelTracker:
                     landmarks=hand.landmarks,
                     handedness=getattr(hand, "handedness", None),
                     present=True,
+                    top=top,
+                    vote_label=vote_label,
+                    vote_count=vote_count,
+                    vote_total=smoother.filled,
                 )
             )
+        self.last_inference_ms = inference_seconds * 1000.0
         return readings
 
     def reset(self) -> None:

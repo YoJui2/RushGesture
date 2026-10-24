@@ -18,7 +18,7 @@ en tiempo real y una interfaz de juego en Pygame.
 | 3 | Random Forest / SVM-RBF / MLP + evaluación | Implementado |
 | 4 | Predictor en tiempo real con suavizado temporal | Implementado |
 | 5 | Asociación de manos a jugadores, rondas y puntuación | Implementado |
-| 6 | Interfaz visual: menú + «Duelo de gestos» + «Cadena de gestos» | En curso |
+| 6 | Interfaz visual: menú + «Duelo» + «Cadena» + «Prueba» | En curso |
 
 Quedan pendientes la calibración de regiones, el modo técnico con landmarks
 sobre el vídeo y las pruebas con tres personas en la máquina real (fases 6–8).
@@ -344,26 +344,28 @@ python scripts/run_predict.py
 
 ## Jugar: minijuegos (Fase 6)
 
-Menú con dos minijuegos sobre **una sola cámara**. Cada jugador ocupa una mitad
-del encuadre (izquierda/derecha) y ambos ven la misma pantalla.
+Menú con tres modos sobre **una sola cámara**: Duelo y Cadena compiten, Prueba
+diagnostica el modelo. En los dos minijuegos cada jugador ocupa una mitad del
+encuadre (izquierda/derecha) y ambos ven la misma pantalla.
 
 ```bat
 python scripts/run_game.py                    :: camara + modelo entrenado
 python scripts/run_game.py --demo             :: sin camara: jugadores simulados
 python scripts/run_game.py --demo --game chain
 python scripts/run_game.py --game duel --rounds 3
+python scripts/run_game.py --game practice    :: diagnostico del modelo
 ```
 
 | Opción | Para qué |
 |--------|----------|
 | `--demo` | No abre cámara ni carga el modelo; jugadores simulados. Ideal para trabajar la interfaz. |
-| `--game menu\|duel\|chain` | Pantalla inicial (por defecto el menú). |
+| `--game menu\|duel\|chain\|practice` | Pantalla inicial (por defecto el menú). |
 | `--players 2\|3` | Cantidad de franjas en el encuadre (2 por defecto). |
 | `--rounds N` | Rondas por partida del duelo (5 por defecto, `0` = sin límite). |
 | `--chain N` | Gestos por cadena en el modo cadena (5 por defecto). |
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
 
-Teclas: en el menú, `1`/`2` o clic eligen minijuego y `ENTER` arranca el duelo;
+Teclas: en el menú, `1`/`2`/`3` o clic eligen modo y `ENTER` arranca el duelo;
 `ESPACIO`/`ENTER` inicia ronda o carrera, `R` reinicia, `ESC` vuelve al menú
 (desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese jugador
 para probar el cierre de ronda, la cadena y el marcador.
@@ -391,6 +393,37 @@ avanza a su ritmo completando el gesto que le toca.
 - Si nadie termina en 45 s, la carrera queda desierta. Los tiempos idénticos son empate.
 - El marcador inferior muestra progreso, tiempo total y tiempo medio por gesto.
 
+### Prueba del modelo
+
+Modo sin reglas ni puntaje, pensado para **inspeccionar y explicar el
+clasificador en vivo**. Una sola vista de cámara (se clasifica la mano más
+centrada del encuadre) y una columna de diagnóstico:
+
+| Elemento | Qué muestra |
+|----------|-------------|
+| Predicción cruda | Clase con mayor probabilidad (`argmax`) y su confianza, en % y en barra con el umbral marcado. |
+| Top 3 | Las tres clases más probables; barras parejas = el modelo duda entre gestos parecidos. |
+| Voto temporal | Etiqueta con más votos en la ventana y cuántos frames la sostienen (puntos). |
+| El juego aceptaría | La etiqueta que el juego aceptaría con esta lectura: requiere 5 de los últimos 7 frames y confianza ≥ 60 %. |
+| Rendimiento | FPS de la cámara, ms de clasificar un frame y la configuración vigente del suavizado. |
+
+`R` reinicia el voto temporal (útil para mostrar cómo se confirma un gesto desde
+cero). La columna resume la configuración vigente y el compromiso del umbral:
+**más alto = más estricto y más lento; más bajo = más reactivo y más propenso a
+falsos positivos**.
+
+Cómo se llega a un gesto confirmado:
+
+1. MediaPipe entrega 21 landmarks de la mano y se normalizan (muñeca al origen,
+   escala por el tamaño de la palma) → vector de 42 features.
+2. El clasificador devuelve una probabilidad por cada una de las 10 clases; la
+   predicción cruda es la de mayor probabilidad.
+3. El **voto temporal** descarta parpadeos: exige que la misma etiqueta se
+   repita en la ventana antes de aceptarla.
+4. En Duelo y Cadena cada franja del encuadre se clasifica por separado, con su
+   propio suavizado: una mano en la mitad izquierda nunca puntúa para el jugador
+   de la derecha. Prueba usa una sola franja (el encuadre completo).
+
 La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la ventana,
 así que funciona igual en cualquier monitor. Si la cámara o el modelo faltan,
 usá `--demo`; es también el modo de respaldo para la feria.
@@ -411,6 +444,7 @@ usá `--demo`; es también el modo de respaldo para la feria.
 | `python scripts/run_game.py` | Interfaz de los minijuegos (Fase 6) |
 | `python scripts/run_game.py --demo` | Interfaz sin cámara ni modelo |
 | `python scripts/run_game.py --game chain --chain 8` | Cadena de ocho gestos |
+| `python scripts/run_game.py --game practice` | Diagnóstico del modelo (top 3, voto temporal, FPS) |
 | `python -m pytest -q` | Ejecuta las pruebas |
 
 ## Pruebas
@@ -421,8 +455,8 @@ python -m pytest -q
 
 Las pruebas no requieren webcam ni `mediapipe`; cubren normalización de features,
 dataset, entrenamiento/carga de modelos, predicción de las clases, estabilidad
-temporal, reglas del duelo y de la cadena, asignación de manos a jugadores y el
-modo demo de punta a punta.
+temporal, reglas del duelo y de la cadena, asignación de manos a jugadores,
+top-3 y voto temporal del modo Prueba, y el modo demo de punta a punta.
 
 ## Problemas frecuentes
 
@@ -486,7 +520,7 @@ gesture_rush/
   player_tracker.py  Asociación de manos a jugadores (franjas del encuadre)
   game.py            Reglas del duelo y de la cadena: fases, tiempos y puntos
   live.py            Fuentes de datos para la UI (cámara real / demo)
-  ui.py              Interfaz Pygame: menú, duelo y cadena
+  ui.py              Interfaz Pygame: menú, duelo, cadena y modo prueba
 scripts/             Entradas ejecutables por fase + check_setup.py
 tests/               Pruebas pytest
 models/ data/ reports/ assets/   Artefactos del demo (versionados)

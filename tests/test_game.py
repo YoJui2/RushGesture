@@ -14,6 +14,7 @@ from gesture_rush.game import (
     PHASE_PLAYING,
     PHASE_RESULT,
     Duel,
+    PracticeSession,
 )
 
 
@@ -21,6 +22,26 @@ def make_duel(**kwargs) -> Duel:
     options = dict(num_players=2, total_rounds=3, rng=random.Random(7))
     options.update(kwargs)
     return Duel(**options)
+
+
+def test_practice_session_is_a_single_camera_with_no_target():
+    session = PracticeSession()
+
+    assert session.num_players == 1, "el modo Prueba es una sola vista de camara"
+    assert session.phase == PHASE_PLAYING
+    assert session.current_target(0) is None
+
+    # tick/reset no cambian nada: no hay rondas que avanzar.
+    session.tick(10.0)
+    assert session.phase == PHASE_PLAYING
+    session.reset()
+    assert session.phase == PHASE_PLAYING
+    assert set(session.gestures) == set(config.GESTURES)
+
+
+def test_practice_session_rejects_invalid_configuration():
+    with pytest.raises(ValueError):
+        PracticeSession(num_players=0)
 
 
 def start_and_play(duel: Duel, play_at: float = 3.0) -> float:

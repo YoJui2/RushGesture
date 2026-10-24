@@ -1,16 +1,18 @@
-"""Fase 6: interfaz grafica del minijuego "Duelo de gestos".
+"""Fase 6: interfaz grafica de los minijuegos de Gesture Rush.
 
 Uso:
     python scripts/run_game.py                 # camara real + modelo entrenado
     python scripts/run_game.py --demo          # sin camara, jugadores simulados
     python scripts/run_game.py --rounds 3      # partida corta
     python scripts/run_game.py --players 3     # tres franjas en el encuadre
+    python scripts/run_game.py --game practice # diagnostico del modelo
 
 Teclas:
-    ESPACIO / ENTER  iniciar ronda
-    R                reiniciar la partida
+    ESPACIO / ENTER  iniciar ronda o carrera
+    R                reiniciar la partida (en Prueba, el voto temporal)
     ESC              volver al menu (desde el menu, salir)
-    1 / 2 / 3        en --demo, forzar el acierto de ese jugador
+    1 / 2 / 3        en el menu, elegir minijuego
+    1 / 2            en --demo, forzar el acierto de ese jugador
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gesture_rush import config  # noqa: E402
 from gesture_rush.camera import CameraError  # noqa: E402
-from gesture_rush.game import ChainRace, Duel  # noqa: E402
+from gesture_rush.game import ChainRace, Duel, PracticeSession  # noqa: E402
 from gesture_rush.live import CameraPipeline, DemoPipeline  # noqa: E402
 from gesture_rush.ui import GestureRushApp  # noqa: E402
 
@@ -62,7 +64,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--game",
-        choices=("menu", "duel", "chain"),
+        choices=("menu", "duel", "chain", "practice"),
         default="menu",
         help="pantalla inicial (por defecto el menu)",
     )
@@ -73,9 +75,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     duel = Duel(num_players=args.players, total_rounds=args.rounds)
     chain = ChainRace(num_players=args.players, chain_length=args.chain)
+    practice = PracticeSession()
 
     if args.demo:
-        pipeline = DemoPipeline(duel)
+        pipeline = DemoPipeline(practice if args.game == "practice" else duel)
     else:
         try:
             from gesture_rush.predictor import Predictor
@@ -95,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Proba con --demo para ver la interfaz sin camara.")
             return 1
 
-    app = GestureRushApp(duel, chain, pipeline, demo=args.demo)
+    app = GestureRushApp(duel, chain, practice, pipeline, demo=args.demo)
     if args.game != "menu":
         app.start_game(args.game)
     app.run()

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import random
 
-from gesture_rush.game import ChainRace, Duel
-from gesture_rush.live import DemoPipeline
+from gesture_rush import config
+from gesture_rush.game import ChainRace, Duel, PracticeSession
+from gesture_rush.live import CameraPipeline, DemoPipeline
 
 
 def run_loop(game, pipeline, seconds: float = 60.0, dt: float = 1 / 60) -> float:
@@ -63,6 +64,70 @@ def test_bind_switches_the_simulated_game():
 
     pipeline.bind(chain)  # repetir no rompe nada
     assert pipeline.game is chain
+
+
+def test_demo_practice_feeds_free_gestures_with_top_k():
+    practice = PracticeSession()
+    pipeline = DemoPipeline(practice, rng=random.Random(9))
+
+    now = 0.0
+    seen: set[str] = set()
+    for _ in range(240):  # 8 s a 30 fps: da tiempo a cambiar de gesto
+        now += 1 / 30
+        _frame, readings = pipeline.read(now, probe=True)
+        # Una sola vista de camara: una unica lectura.
+        assert len(readings) == 1
+        for reading in readings:
+            assert reading.present and reading.label in practice.gestures
+            assert reading.top and len(reading.top) == 3
+            assert reading.top[0][0] == reading.label
+            assert reading.top[0][1] == reading.confidence
+            assert 0 <= reading.vote_count <= reading.vote_total
+            assert reading.vote_total <= config.SMOOTHING_WINDOW
+        seen.add(readings[0].label)
+
+    assert len(seen) >= 2, "el gesto simulado cambia con el tiempo"
+
+
+def test_demo_practice_vote_confirms_after_the_window():
+    practice = PracticeSession()
+    pipeline = DemoPipeline(practice, rng=random.Random(4))
+
+    now = 0.0
+    confirmed_at = None
+    for step in range(300):
+        now += 1 / 30
+        _frame, readings = pipeline.read(now, probe=True)
+        if readings[0].stable is not None and confirmed_at is None:
+            confirmed_at = step
+            # El suavizado exige varios votos, no la primera prediccion.
+            assert readings[0].vote_count >= config.SMOOTHING_MIN_VOTES
+    assert confirmed_at is not None
+    assert confirmed_at > 0
+
+
+def test_bind_to_practice_resets_the_simulation():
+    duel = Duel()
+    pipeline = DemoPipeline(duel, rng=random.Random(11), min_delay=0.05, max_delay=0.1)
+    duel.start(0.0)
+    duel.tick(3.0)
+    pipeline.read(3.1)
+
+    practice = PracticeSession()
+    pipeline.bind(practice)
+    assert pipeline.game is practice
+    assert pipeline._labels == {} and pipeline._plan == {}
+
+
+def test_camera_pipeline_switches_to_one_band_in_practice():
+    pipeline = CameraPipeline(predictor=object(), num_players=2)
+    assert pipeline.tracker.num_players == 2
+
+    pipeline.bind(PracticeSession())
+    assert pipeline.tracker.num_players == 1
+
+    pipeline.bind(Duel())
+    assert pipeline.tracker.num_players == 2
 
 
 def test_force_makes_a_player_advance_once():

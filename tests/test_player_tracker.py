@@ -34,6 +34,11 @@ class FakePredictor:
         label = self.LABELS.get(int(landmarks[0, 0]), "fist")
         return label, 0.92
 
+    def predict_top_k(self, landmarks, k: int = 3):
+        label, confidence = self.predict(landmarks)
+        top = [(label, confidence), ("open_palm", 0.05), ("rock", 0.03)][: max(1, k)]
+        return label, confidence, top
+
 
 def test_zone_centers_split_the_frame():
     assert zone_center(0, 2) == 0.25
@@ -112,3 +117,54 @@ def test_tracker_reset_forgets_smoothing():
 
     tracker.reset()
     assert tracker.update(hands)[0].stable is None
+
+
+def test_probe_mode_reports_top_k_and_vote_detail():
+    tracker = DuelTracker(FakePredictor(), num_players=2, window=3, min_votes=2)
+    hands = [FakeHand(0.2, code=0, index=0), FakeHand(0.8, code=1, index=1)]
+
+    readings = tracker.update(hands, probe=True)
+
+    first = readings[0]
+    assert first.top is not None and len(first.top) == 3
+    assert first.top[0] == ("fist", 0.92)
+    probabilities = [probability for _label, probability in first.top]
+    assert probabilities == sorted(probabilities, reverse=True)
+
+    # Un voto de tres todavia no confirma, pero se ve la tendencia.
+    assert first.stable is None
+    assert first.vote_label == "fist"
+    assert first.vote_count == 1
+    assert first.vote_total == 1
+    assert tracker.last_inference_ms >= 0.0
+
+    tracker.update(hands, probe=True)
+    readings = tracker.update(hands, probe=True)
+    assert readings[0].stable == "fist"
+    assert readings[0].vote_count == 3
+    assert readings[0].vote_total == 3
+
+
+def test_probe_mode_reports_window_occupancy_without_hand():
+    tracker = DuelTracker(FakePredictor(), num_players=2, window=3, min_votes=2)
+    hands = [FakeHand(0.2, code=0, index=0), FakeHand(0.8, code=1, index=1)]
+    tracker.update(hands, probe=True)
+
+    readings = tracker.update([], probe=True)
+
+    assert readings[0].top is None
+    assert readings[0].vote_label is None
+    assert readings[0].vote_count == 0
+    assert readings[0].vote_total == 2  # la ventana conserva los votos previos
+
+
+def test_tracker_without_probe_does_not_compute_top_k():
+    class NoProbePredictor(FakePredictor):
+        def predict_top_k(self, landmarks, k=3):
+            raise AssertionError("no deberia pedirse el top-k en el juego")
+
+    tracker = DuelTracker(NoProbePredictor(), num_players=2, window=3, min_votes=2)
+    readings = tracker.update([FakeHand(0.2, code=0, index=0)])
+
+    assert readings[0].top is None
+    assert readings[0].label == "fist"

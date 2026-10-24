@@ -21,6 +21,7 @@ from . import config
 from .camera import Camera, CameraError
 from .hand_detector import HandDetector
 from .player_tracker import DuelTracker, PlayerReading
+from .predictor import TemporalSmoother
 
 
 class CameraPipeline:
@@ -62,10 +63,22 @@ class CameraPipeline:
 
     # -- Lectura -------------------------------------------------------------
     def bind(self, game) -> None:
-        """La camara real no necesita saber que minijuego esta activo."""
-        self.current_game = game
+        """Adapta el reparto de franjas al modo activo.
 
-    def read(self, now: float | None = None) -> tuple[np.ndarray | None, list[PlayerReading]]:
+        En Prueba hay una sola franja (el encuadre completo); en Duelo y Cadena
+        hay una por jugador. Cambiar de banda obliga a rehacer los suavizados.
+        """
+        self.current_game = game
+        players = int(getattr(game, "num_players", self.num_players))
+        if players != self.tracker.num_players:
+            self.tracker = DuelTracker(self.predictor, players)
+
+    def reset(self) -> None:
+        self.tracker.reset()
+
+    def read(
+        self, now: float | None = None, *, probe: bool = False
+    ) -> tuple[np.ndarray | None, list[PlayerReading]]:
         if self._camera is None:
             self.start()
         assert self._camera is not None and self._detector is not None
@@ -79,11 +92,11 @@ class CameraPipeline:
             frame = frame[:, ::-1].copy()
 
         hands = self._detector.detect(frame)
-        return frame, self.tracker.update(hands)
+        return frame, self.tracker.update(hands, probe=probe)
 
     def _empty_readings(self) -> list[PlayerReading]:
         self.tracker.reset()
-        return [PlayerReading(player=i) for i in range(self.num_players)]
+        return [PlayerReading(player=i) for i in range(self.tracker.num_players)]
 
 
 class DemoPipeline:
@@ -110,25 +123,45 @@ class DemoPipeline:
         self._plan: dict[int, tuple[tuple, float]] = {}
         self._labels: dict[int, tuple[str | None, float]] = {}
         self._forced: set[int] = set()
+        # Modo Prueba: gesto sostenido por jugador y suavizado real.
+        self._held: dict[int, tuple[str, float, float]] = {}
+        self._practice_smoothers: dict[int, TemporalSmoother] = {}
 
     # -- API esperada por la interfaz ---------------------------------------
     def bind(self, game) -> None:
-        """Cambia el minijuego simulado (duelo o cadena)."""
+        """Cambia el minijuego simulado (duelo, cadena o prueba)."""
         if game is self.game:
             return
         self.game = game
+        self.reset()
+
+    def reset(self) -> None:
         self._plan.clear()
         self._labels.clear()
         self._forced.clear()
+        self._held.clear()
+        self._practice_smoothers.clear()
 
-    def read(self, now: float | None = None) -> tuple[np.ndarray | None, list[PlayerReading]]:
+    def read(
+        self, now: float | None = None, *, probe: bool = False
+    ) -> tuple[np.ndarray | None, list[PlayerReading]]:
         now = time.perf_counter() if now is None else now
         if self.game.phase == "playing":
-            self._simulate(now)
+            if getattr(self.game, "practice", False):
+                self._simulate_practice(now)
+            else:
+                self._simulate(now)
+
         readings: list[PlayerReading] = []
         for player in range(self.game.num_players):
             label, confidence = self._labels.get(player, (None, 0.0))
-            stable = label if confidence >= config.CONFIDENCE_THRESHOLD else None
+            if probe:
+                stable, vote_label, vote_count, vote_total = self._practice_vote(
+                    player, label, confidence
+                )
+            else:
+                stable = label if confidence >= config.CONFIDENCE_THRESHOLD else None
+                vote_label, vote_count, vote_total = None, 0, 0
             readings.append(
                 PlayerReading(
                     player=player,
@@ -136,6 +169,10 @@ class DemoPipeline:
                     confidence=confidence,
                     stable=stable,
                     present=label is not None,
+                    top=self._synthetic_top(label, confidence) if probe else None,
+                    vote_label=vote_label,
+                    vote_count=vote_count,
+                    vote_total=vote_total,
                 )
             )
         return None, readings
@@ -184,3 +221,50 @@ class DemoPipeline:
                     self._rng.choice(others),
                     self._rng.uniform(0.30, 0.58),
                 )
+
+    def _simulate_practice(self, now: float) -> None:
+        """Modo Prueba: cada jugador sostiene un gesto libre unos segundos.
+
+        Se alterna el gesto para que se vea como cambia la prediccion, y el
+        jugador 2 mantiene confianzas mas bajas para mostrar el caso en que el
+        voto temporal no confirma.
+        """
+        for player in range(self.game.num_players):
+            held = self._held.get(player)
+            if held is None or now >= held[2]:
+                label = self._rng.choice(self.game.gestures)
+                base = (
+                    self._rng.uniform(0.78, 0.98)
+                    if player % 2 == 0
+                    else self._rng.uniform(0.45, 0.85)
+                )
+                held = (label, base, now + self._rng.uniform(1.4, 2.8))
+                self._held[player] = held
+            label, base, _until = held
+            confidence = min(0.999, max(0.05, base + self._rng.uniform(-0.03, 0.03)))
+            self._labels[player] = (label, confidence)
+
+    def _practice_vote(
+        self, player: int, label: str | None, confidence: float
+    ) -> tuple[str | None, str | None, int, int]:
+        """Pasa la etiqueta por un suavizado real, como en la camara."""
+        smoother = self._practice_smoothers.get(player)
+        if smoother is None:
+            smoother = self._practice_smoothers[player] = TemporalSmoother()
+        stable = smoother.update(label, confidence)
+        vote_label, vote_count = smoother.snapshot()
+        return stable, vote_label, vote_count, smoother.filled
+
+    def _synthetic_top(
+        self, label: str | None, confidence: float
+    ) -> list[tuple[str, float]]:
+        """Top-3 verosimil: la clase ganadora y el resto repartido."""
+        if label is None:
+            return []
+        others = [g for g in self.game.gestures if g != label]
+        self._rng.shuffle(others)
+        rest = max(0.0, 1.0 - confidence)
+        top = [(label, confidence)]
+        for other, weight in zip(others, (0.55, 0.30)):
+            top.append((other, rest * weight))
+        return top

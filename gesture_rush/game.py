@@ -511,3 +511,40 @@ class ChainRace:
         self._last_chain = chain
         return chain
 
+
+# ---------------------------------------------------------------------------
+# Modo prueba
+# ---------------------------------------------------------------------------
+class PracticeSession:
+    """Sesion libre para el modo Prueba: sin rondas, sin puntos, sin objetivo.
+
+    Es una sola vista de camara (``num_players=1``): el tracker trabaja con una
+    unica franja, asi que se clasifica la mano mas centrada del encuadre. Cumple
+    el contrato minimo que ``DemoPipeline`` necesita de un juego (``phase``,
+    ``num_players``, ``gestures``) para poder simular la camara.
+    """
+
+    practice = True
+
+    def __init__(
+        self,
+        num_players: int = 1,
+        *,
+        gestures: tuple[str, ...] | None = None,
+    ) -> None:
+        if num_players < 1:
+            raise ValueError("Hace falta al menos un jugador")
+        self.num_players = num_players
+        self.gestures = tuple(config.GESTURES if gestures is None else gestures)
+        self.phase = PHASE_PLAYING
+
+    def current_target(self, player: int) -> None:
+        """En Prueba no hay gesto objetivo."""
+        return None
+
+    def tick(self, now: float) -> None:
+        """No hay fases que avanzar."""
+
+    def reset(self) -> None:
+        """No hay estado que reiniciar."""
+

@@ -1,11 +1,14 @@
-"""Interfaz grafica del minijuego "Duelo de gestos" (Pygame).
+"""Interfaz grafica de Gesture Rush (Pygame).
 
 Pantallas
 ---------
-- ``MenuScreen``: eleccion de minijuego. Hoy solo "Duelo de gestos" esta
-  habilitado; los demas aparecen como proximamente.
+- ``MenuScreen``: eleccion de minijuego (Duelo, Cadena y Prueba).
 - ``DuelScreen``: partida clasica con una sola camara. Cada jugador ocupa una
   mitad del encuadre y compite por hacer el gesto objetivo primero.
+- ``ChainScreen``: los dos jugadores reciben la misma cadena de gestos y gana
+  el primero en completarla.
+- ``PracticeScreen``: modo Prueba, sin reglas. Muestra la prediccion cruda, el
+  top 3 del clasificador y el voto temporal, para explicar el modelo.
 
 El dibujo se hace sobre una superficie de 1240x900 que pygame escala a la
 ventana real (``pygame.SCALED``), asi que las coordenadas son siempre las
@@ -20,6 +23,7 @@ import cv2
 import numpy as np
 import pygame
 
+from . import config
 from .game import (
     PHASE_COUNTDOWN,
     PHASE_FINISHED,
@@ -28,7 +32,9 @@ from .game import (
     PHASE_RESULT,
     ChainRace,
     Duel,
+    PracticeSession,
 )
+from .player_tracker import PlayerReading
 
 # ---------------------------------------------------------------------------
 # Lienzo
@@ -320,8 +326,10 @@ def draw_arena_header(
     fonts: Fonts,
     title: str,
     num_players: int,
+    *,
+    chip: str | None = None,
 ) -> None:
-    """Cabecera comun a las pantallas de juego."""
+    """Cabecera comun a las pantallas."""
     draw_text(surface, fonts, title, 30, TEXT, (MARGIN, 26), bold=True)
     draw_text(
         surface, fonts, "ESC · menú", 15, MUTED,
@@ -329,9 +337,57 @@ def draw_arena_header(
     )
     draw_pill(
         surface, fonts,
-        f"1 cámara · {num_players} personas",
+        chip or f"1 cámara · {num_players} personas",
         (WIDTH - MARGIN, 22), CARD_SOFT, MUTED, size=16, anchor="topright",
     )
+
+
+def draw_meter(
+    surface: pygame.Surface,
+    rect: pygame.Rect,
+    value: float,
+    color: tuple[int, int, int],
+    background: tuple[int, int, int] = CARD_SOFT,
+) -> None:
+    """Barra horizontal 0..1 tipo medidor."""
+    pygame.draw.rect(surface, background, rect, border_radius=rect.h // 2)
+    value = max(0.0, min(1.0, float(value)))
+    if value <= 0:
+        return
+    filled = pygame.Rect(rect.x, rect.y, max(rect.h, int(rect.w * value)), rect.h)
+    pygame.draw.rect(surface, color, filled, border_radius=rect.h // 2)
+
+
+def draw_camera_viewport(
+    surface: pygame.Surface,
+    fonts: Fonts,
+    viewport: pygame.Rect,
+    *,
+    index: int,
+    num_players: int,
+    frame: np.ndarray | None,
+    demo: bool,
+    color: tuple[int, int, int],
+    avatar_scale: float = 1.25,
+) -> None:
+    """Recuadro con la imagen del jugador (o el avatar si no hay camara)."""
+    inner = PLAYER_INNER[index % len(PLAYER_INNER)]
+    pygame.draw.rect(surface, inner, viewport, border_radius=14)
+
+    if frame is not None:
+        image, size = frame_surface(frame, index, num_players, viewport.size)
+        masked = image.copy()
+        masked.blit(rounded_mask(size, 12), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(masked, masked.get_rect(center=viewport.center))
+    else:
+        draw_avatar(surface, (viewport.centerx, viewport.centery - 6), color, avatar_scale)
+        caption = "sin cámara · modo demo" if demo else "sin señal de cámara"
+        draw_text(
+            surface, fonts, caption, 14, MUTED,
+            (viewport.centerx, viewport.bottom - 12), anchor="midbottom",
+        )
+
+    pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
 
 
 def draw_player_panel(
@@ -348,7 +404,6 @@ def draw_player_panel(
 ) -> pygame.Rect:
     """Fondo del panel, recuadro de camara, avatar y chip de prediccion."""
     color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
-    inner = PLAYER_INNER[index % len(PLAYER_INNER)]
     draw_card(surface, rect, CARD, radius=20, border=border or BORDER)
 
     side = "izquierda" if index == 0 else ("derecha" if index == num_players - 1 else "centro")
@@ -358,22 +413,11 @@ def draw_player_panel(
     )
 
     viewport = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
-    pygame.draw.rect(surface, inner, viewport, border_radius=14)
-
-    if frame is not None:
-        image, size = frame_surface(frame, index, num_players, viewport.size)
-        masked = image.copy()
-        masked.blit(rounded_mask(size, 12), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        surface.blit(masked, masked.get_rect(center=viewport.center))
-    else:
-        draw_avatar(surface, (viewport.centerx, viewport.centery - 6), color, 1.25)
-        caption = "sin cámara · modo demo" if demo else "sin señal de cámara"
-        draw_text(
-            surface, fonts, caption, 14, MUTED,
-            (viewport.centerx, viewport.bottom - 12), anchor="midbottom",
-        )
-
-    pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
+    draw_camera_viewport(
+        surface, fonts, viewport,
+        index=index, num_players=num_players,
+        frame=frame, demo=demo, color=color,
+    )
 
     if label is not None:
         text = f"Jugador {index + 1} · {short_label(label)}"
@@ -429,12 +473,12 @@ class MenuScreen(Screen):
             "enabled": True,
         },
         {
-            "key": "cup",
-            "title": "Torneo",
-            "desc": "Llaves eliminatorias de cuatro jugadores por rondas.",
-            "tag": "Próximamente",
+            "key": "practice",
+            "title": "Prueba del modelo",
+            "desc": "Sin reglas: mirá la predicción, el top 3 y el voto temporal del modelo.",
+            "tag": "1 cámara · diagnóstico",
             "glyph": "thumbs_up",
-            "enabled": False,
+            "enabled": True,
         },
     )
 
@@ -457,6 +501,8 @@ class MenuScreen(Screen):
                 self.app.start_game("duel")
             elif event.key == pygame.K_2:
                 self.app.start_game("chain")
+            elif event.key == pygame.K_3:
+                self.app.start_game("practice")
             elif event.key == pygame.K_ESCAPE:
                 self.app.running = False
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -525,7 +571,7 @@ class MenuScreen(Screen):
 
         draw_text(
             surface, fonts,
-            "ENTER jugar · ESC salir · una sola cámara, dos jugadores por mitades",
+            "1, 2, 3 eligen minijuego · ESC salir · una sola cámara, jugadores por mitades",
             17, MUTED, (WIDTH // 2, 842), anchor="midtop",
         )
 
@@ -539,7 +585,7 @@ class MenuScreen(Screen):
         steps = (
             "Elegí el minijuego.",
             "Cada jugador se para frente a una mitad del encuadre.",
-            "El primero en hacer el gesto objetivo se lleva el punto.",
+            "Duelo y Cadena compiten; Prueba muestra lo que ve el modelo.",
         )
         for index, step in enumerate(steps):
             x = guide.x + 22 + index * ((guide.w - 44) // 3)
@@ -1190,6 +1236,312 @@ class ChainScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
+# Modo prueba
+# ---------------------------------------------------------------------------
+class PracticeScreen(Screen):
+    """Diagnostico del modelo: prediccion cruda, top 3 y voto temporal.
+
+    Una sola vista de camara, sin reglas ni puntaje. Existe para explicar como
+    decide el clasificador y como lo estabiliza el voto temporal antes de que el
+    juego acepte un gesto.
+    """
+
+    def __init__(self, app: "GestureRushApp") -> None:
+        super().__init__(app)
+        self.practice: PracticeSession = app.practice
+        self.frame: np.ndarray | None = None
+        self.readings: list[PlayerReading] = []
+        self.error: str | None = None
+        self.threshold = float(config.CONFIDENCE_THRESHOLD)
+        self.window = int(config.SMOOTHING_WINDOW)
+        self.min_votes = int(config.SMOOTHING_MIN_VOTES)
+
+        self.camera_rect = pygame.Rect(MARGIN, 78, 780, 562)
+        self.side_rect = pygame.Rect(820, 78, 396, 562)
+        self.note_rect = pygame.Rect(MARGIN, 656, WIDTH - 2 * MARGIN, 228)
+
+    # -- Eventos -------------------------------------------------------------
+    def handle_event(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.app.show_menu()
+            elif event.key == pygame.K_r:
+                reset = getattr(self.app.pipeline, "reset", None)
+                if callable(reset):
+                    reset()
+
+    # -- Actualizacion -------------------------------------------------------
+    def update(self, now: float) -> None:
+        super().update(now)
+        try:
+            self.frame, self.readings = self.app.pipeline.read(now, probe=True)
+            self.error = None
+        except Exception as exc:  # camara desconectada a mitad de la prueba
+            self.frame, self.readings = None, []
+            self.error = str(exc)
+
+    @property
+    def reading(self) -> PlayerReading:
+        return self.readings[0] if self.readings else PlayerReading(player=0)
+
+    # -- Dibujo --------------------------------------------------------------
+    def draw(self) -> None:
+        surface = self.app.screen
+        surface.fill(BG)
+        draw_arena_header(
+            surface, self.app.fonts, "Prueba del modelo", 1,
+            chip="1 cámara · diagnóstico",
+        )
+        self._draw_preview(surface)
+        self._draw_metrics(surface)
+        self._draw_notes(surface)
+
+    def _draw_preview(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        rect = self.camera_rect
+        reading = self.reading
+        draw_card(surface, rect, CARD, radius=20)
+        draw_text(
+            surface, fonts, "Cámara única", 16, TEXT,
+            (rect.x + 20, rect.y + 18), bold=True,
+        )
+
+        if not reading.present:
+            hand, hand_color = "sin mano", MUTED
+        elif reading.handedness:
+            side = str(reading.handedness).lower()
+            hand = "mano derecha" if side.startswith("r") else "mano izquierda"
+            hand_color = AMBER
+        else:
+            hand, hand_color = "mano detectada", AMBER
+        draw_pill(
+            surface, fonts, hand, (rect.right - 20, rect.y + 16),
+            CARD_SOFT, hand_color, size=14, anchor="topright",
+        )
+
+        viewport = pygame.Rect(rect.x + 20, rect.y + 50, rect.w - 40, 484)
+        draw_camera_viewport(
+            surface, fonts, viewport,
+            index=0, num_players=1,
+            frame=self.frame, demo=self.app.demo,
+            color=(64, 76, 114), avatar_scale=1.9,
+        )
+        draw_text(
+            surface, fonts, "Se clasifica la mano más centrada del encuadre.",
+            13, MUTED, (rect.x + 20, viewport.bottom + 14),
+        )
+        draw_text(
+            surface, fonts, "imagen espejada", 13, DIM,
+            (rect.right - 20, viewport.bottom + 14), anchor="topright",
+        )
+
+    def _separator(self, surface: pygame.Surface, rect: pygame.Rect, offset: int) -> None:
+        pygame.draw.line(
+            surface, (38, 46, 78),
+            (rect.x + 20, rect.y + offset), (rect.right - 20, rect.y + offset), 1,
+        )
+
+    def _draw_metrics(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        rect = self.side_rect
+        reading = self.reading
+        x, right = rect.x, rect.right
+        draw_card(surface, rect, CARD, radius=20)
+
+        # Prediccion cruda del frame.
+        draw_text(surface, fonts, "PREDICCIÓN CRUDA", 13, MUTED, (x + 20, rect.y + 16))
+        present = reading.present and reading.label is not None
+        confidence = reading.confidence if present else 0.0
+        conf_color = GOOD if confidence >= self.threshold else AMBER
+        if present:
+            glyph = hand_glyph(reading.label, 54)
+            surface.blit(glyph, glyph.get_rect(center=(x + 50, rect.y + 62)))
+            draw_text(
+                surface, fonts, short_label(reading.label), 30, TEXT,
+                (x + 84, rect.y + 38), bold=True,
+            )
+            draw_text(
+                surface, fonts, f"{confidence * 100:.1f} %".replace(".", ","),
+                26, conf_color, (right - 20, rect.y + 42),
+                bold=True, anchor="topright",
+            )
+        else:
+            draw_text(surface, fonts, "sin mano", 28, DIM, (x + 20, rect.y + 40), bold=True)
+            draw_text(
+                surface, fonts, "—", 28, DIM,
+                (right - 20, rect.y + 42), bold=True, anchor="topright",
+            )
+
+        meter = pygame.Rect(x + 20, rect.y + 106, rect.w - 40, 10)
+        draw_meter(surface, meter, confidence, conf_color if present else (52, 62, 100))
+        tick = meter.x + int(meter.w * self.threshold)
+        pygame.draw.line(surface, TEXT, (tick, meter.y - 5), (tick, meter.bottom + 5), 2)
+        draw_text(
+            surface, fonts,
+            f"confianza · umbral {self.threshold * 100:.0f} % marcado",
+            13, MUTED, (x + 20, meter.bottom + 8),
+        )
+
+        self._separator(surface, rect, 142)
+
+        # Top 3: reparto de probabilidad entre clases.
+        draw_text(
+            surface, fonts, "TOP 3 DEL CLASIFICADOR", 13, MUTED,
+            (x + 20, rect.y + 152),
+        )
+        top = reading.top or []
+        if top:
+            for row, (label, probability) in enumerate(top[:3]):
+                y = rect.y + 174 + row * 32
+                glyph = hand_glyph(label, 20)
+                surface.blit(glyph, (x + 22, y + 2))
+                draw_text(
+                    surface, fonts, short_label(label), 15,
+                    TEXT if row == 0 else MUTED, (x + 52, y),
+                )
+                bar = pygame.Rect(x + 150, y + 6, 170, 8)
+                draw_meter(
+                    surface, bar, probability,
+                    AMBER if row == 0 else (70, 84, 130),
+                )
+                draw_text(
+                    surface, fonts, f"{probability * 100:.0f} %", 14, MUTED,
+                    (right - 20, y), anchor="topright",
+                )
+        else:
+            draw_text(
+                surface, fonts, "Sin predicción: no hay mano.", 15, DIM,
+                (x + 22, rect.y + 178),
+            )
+
+        self._separator(surface, rect, 284)
+
+        # Voto temporal: cuantos frames sostienen cada etiqueta.
+        draw_text(surface, fonts, "VOTO TEMPORAL", 13, MUTED, (x + 20, rect.y + 294))
+        if reading.vote_label is not None:
+            draw_text(
+                surface, fonts,
+                f"{short_label(reading.vote_label)} · "
+                f"{reading.vote_count} de {reading.vote_total} votos",
+                16, TEXT, (x + 20, rect.y + 314),
+            )
+        else:
+            draw_text(
+                surface, fonts, "sin votos todavía", 16, DIM,
+                (x + 20, rect.y + 314),
+            )
+        for slot in range(self.window):
+            dx = x + 26 + slot * 22
+            if slot < reading.vote_count:
+                pygame.draw.circle(surface, GOOD, (dx, rect.y + 344), 7)
+            elif slot < reading.vote_total:
+                pygame.draw.circle(surface, MUTED, (dx, rect.y + 344), 6, 2)
+            else:
+                pygame.draw.circle(surface, (48, 58, 92), (dx, rect.y + 344), 5)
+        draw_text(
+            surface, fonts,
+            f"{self.window} frames · confirma con {self.min_votes} votos",
+            13, MUTED, (x + 20, rect.y + 358),
+        )
+
+        self._separator(surface, rect, 386)
+
+        # Lo que el juego aceptaria con esta lectura.
+        draw_text(
+            surface, fonts, "EL JUEGO ACEPTARÍA", 13, MUTED,
+            (x + 20, rect.y + 396),
+        )
+        if reading.stable is not None:
+            glyph = hand_glyph(reading.stable, 38)
+            surface.blit(glyph, glyph.get_rect(midleft=(x + 24, rect.y + 424)))
+            draw_text(
+                surface, fonts, short_label(reading.stable), 22, GOOD,
+                (x + 72, rect.y + 412), bold=True,
+            )
+            draw_pill(
+                surface, fonts, "confirmado", (right - 20, rect.y + 408),
+                GOOD, (10, 20, 14), size=13, bold=True, anchor="topright",
+            )
+        else:
+            draw_text(surface, fonts, "—", 22, DIM, (x + 20, rect.y + 412), bold=True)
+            draw_pill(
+                surface, fonts, "sin confirmar", (right - 20, rect.y + 408),
+                CARD_SOFT, MUTED, size=13, anchor="topright",
+            )
+
+        self._separator(surface, rect, 462)
+
+        # Metricas del pipeline.
+        draw_text(surface, fonts, "RENDIMIENTO", 13, MUTED, (x + 20, rect.y + 472))
+        fps = float(getattr(self.app.pipeline, "fps", 0.0) or 0.0)
+        tracker = getattr(self.app.pipeline, "tracker", None)
+        inference = float(getattr(tracker, "last_inference_ms", 0.0) or 0.0)
+        fps_text = f"FPS {fps:.1f}".replace(".", ",") if fps > 0 else "FPS —"
+        inference_text = (
+            f"Inferencia {inference:.1f} ms".replace(".", ",")
+            if inference > 0
+            else "Inferencia —"
+        )
+        draw_text(surface, fonts, fps_text, 16, TEXT, (x + 20, rect.y + 492), bold=True)
+        draw_text(
+            surface, fonts, inference_text, 16, TEXT,
+            (right - 20, rect.y + 492), bold=True, anchor="topright",
+        )
+        draw_text(
+            surface, fonts,
+            f"Ventana {self.window} · mín. {self.min_votes} votos · "
+            f"umbral {self.threshold * 100:.0f} %",
+            13, MUTED, (x + 20, rect.y + 518),
+        )
+        draw_text(
+            surface, fonts, "Umbral alto: más estricto y más lento.",
+            13, AMBER, (x + 20, rect.y + 538),
+        )
+        if self.error:
+            draw_text(
+                surface, fonts, self.error[:52], 12, BAD, (x + 20, rect.y + 556),
+            )
+
+    def _draw_notes(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        rect = self.note_rect
+        draw_card(surface, rect, (20, 25, 48), radius=16, border=(36, 44, 76))
+        draw_text(
+            surface, fonts, "Cómo leer esta pantalla", 16, AMBER,
+            (rect.x + 22, rect.y + 16), bold=True,
+        )
+
+        column_w = (rect.w - 44 - 40) // 2
+        left_x = rect.x + 22
+        right_x = left_x + column_w + 40
+        draw_text(
+            surface, fonts, "Del frame al gesto", 15, TEXT,
+            (left_x, rect.y + 50), bold=True,
+        )
+        draw_paragraph(
+            surface, fonts,
+            "MediaPipe entrega 21 landmarks de la mano; se normalizan (muñeca al "
+            "origen, escala por la palma) y el clasificador devuelve una "
+            "probabilidad por clase. La predicción cruda es la más alta y el "
+            "voto temporal solo la confirma si se repite 5 de 7 frames con "
+            f"confianza ≥ {self.threshold * 100:.0f} %.",
+            16, MUTED, (left_x, rect.y + 76), column_w, line_height=23,
+        )
+        draw_text(
+            surface, fonts, "Qué mirar", 15, TEXT,
+            (right_x, rect.y + 50), bold=True,
+        )
+        draw_paragraph(
+            surface, fonts,
+            "Top 3 repartido = el modelo duda entre gestos parecidos. Confianza "
+            "bajo el umbral o votos incompletos = todavía no hay gesto "
+            "confirmado. FPS mide la captura; la inferencia mide solo la "
+            "clasificación. R reinicia el voto; ESC vuelve al menú.",
+            16, MUTED, (right_x, rect.y + 76), column_w, line_height=23,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Aplicacion
 # ---------------------------------------------------------------------------
 class GestureRushApp:
@@ -1199,6 +1551,7 @@ class GestureRushApp:
         self,
         duel: Duel,
         chain: ChainRace,
+        practice: PracticeSession,
         pipeline,
         *,
         demo: bool = False,
@@ -1212,6 +1565,7 @@ class GestureRushApp:
         self.fonts = Fonts()
         self.duel = duel
         self.chain = chain
+        self.practice = practice
         self.pipeline = pipeline
         self.demo = demo
         self.running = True
@@ -1220,6 +1574,7 @@ class GestureRushApp:
             "menu": MenuScreen(self),
             "duel": DuelScreen(self),
             "chain": ChainScreen(self),
+            "practice": PracticeScreen(self),
         }
         self.active: Screen = self.screens["menu"]
 
@@ -1229,11 +1584,16 @@ class GestureRushApp:
 
     def start_game(self, key: str) -> None:
         """Entra al minijuego ``key`` con datos limpios."""
-        game = self.duel if key == "duel" else self.chain
+        games = {
+            "duel": self.duel,
+            "chain": self.chain,
+            "practice": self.practice,
+        }
+        game = games[key]
         bind = getattr(self.pipeline, "bind", None)
         if callable(bind):
             bind(game)
-        reset = getattr(getattr(self.pipeline, "tracker", None), "reset", None)
+        reset = getattr(self.pipeline, "reset", None)
         if callable(reset):
             reset()
         self.active = self.screens[key]

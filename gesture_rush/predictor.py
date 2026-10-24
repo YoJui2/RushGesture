@@ -54,6 +54,26 @@ class TemporalSmoother:
             return best
         return None
 
+    @property
+    def filled(self) -> int:
+        """Cuantos frames entran en la ventana ahora mismo."""
+        return len(self._votes)
+
+    def snapshot(self) -> tuple[str | None, int]:
+        """Etiqueta con mas votos y cuantos tiene, aunque aun no confirme.
+
+        Sirve para mostrar la tendencia del voto temporal antes de alcanzar el
+        minimo; no altera la etiqueta estable que devuelve ``update``.
+        """
+        counts: dict[str, int] = {}
+        for label in self._votes:
+            if label != NO_HAND:
+                counts[label] = counts.get(label, 0) + 1
+        if not counts:
+            return None, 0
+        winner = max(counts, key=counts.get)
+        return winner, counts[winner]
+
 
 class Predictor:
     """Envoltorio de inferencia: modelo + especificacion de features."""
@@ -127,3 +147,18 @@ class Predictor:
         probs = self.predict_proba(landmarks)
         idx = int(np.argmax(probs))
         return str(self.classes[idx]), float(probs[idx])
+
+    def predict_top_k(
+        self, landmarks: np.ndarray, k: int = 3
+    ) -> tuple[str, float, list[tuple[str, float]]]:
+        """``(etiqueta, confianza, top-k)``, de mayor a menor probabilidad.
+
+        El top-k permite ver como se reparte la probabilidad entre clases
+        parecidas; es la vista que usa el modo Prueba para explicar el modelo.
+        """
+        if landmarks is None:
+            return NO_HAND, 0.0, []
+        probs = self.predict_proba(landmarks)
+        order = np.argsort(probs)[::-1][: max(1, int(k))]
+        top = [(str(self.classes[i]), float(probs[i])) for i in order]
+        return top[0][0], top[0][1], top
