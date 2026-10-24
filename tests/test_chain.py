@@ -53,11 +53,18 @@ def test_race_goes_from_countdown_to_playing():
     assert race.phase == PHASE_PLAYING
 
 
-def test_chain_has_one_gesture_per_step_and_no_repeats():
+def test_chain_can_repeat_gestures_but_never_twice_in_a_row():
     race = make_race(chain_length=6)
-    race.start(0.0)
-    assert len(race.chain) == 6
-    assert len(set(race.chain)) == 6, "la cadena no repite gestos"
+    repeated = False
+    for _ in range(60):
+        race.start(0.0)
+        assert len(race.chain) == 6
+        assert set(race.chain) <= set(config.GESTURES)
+        for previous, current in zip(race.chain, race.chain[1:]):
+            assert previous != current, "nunca dos gestos iguales seguidos"
+        repeated = repeated or len(set(race.chain)) < len(race.chain)
+        race.reset()
+    assert repeated, "los gestos pueden repetirse dentro de la cadena"
 
 
 def test_players_advance_only_with_the_expected_gesture():
@@ -188,6 +195,20 @@ def test_standings_puts_the_winner_first():
 
     standings = race.standings()
     assert [p.index for p in standings] == [1, 0]
+
+
+def test_rematch_never_deals_the_exact_same_chain():
+    race = make_race(chain_length=4, gestures=("fist", "victory"))
+    play_at = start_and_play(race)
+    first = race.chain
+
+    finish_chain(race, 0, play_at, step_ms=100)
+    finish_chain(race, 1, play_at, step_ms=150)
+    assert race.phase == PHASE_FINISHED
+
+    assert race.start(20.0)
+    assert len(race.chain) == 4
+    assert race.chain != first
 
 
 def test_chain_longer_than_vocabulary_avoids_repeats_in_a_row():

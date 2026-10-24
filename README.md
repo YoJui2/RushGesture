@@ -380,8 +380,9 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
 
 ### Cadena de gestos
 
-**Los dos jugadores reciben la misma cadena** (5 gestos distintos, sorteados al
-iniciar). Cada jugador avanza a su ritmo completando el gesto que le toca.
+**Los dos jugadores reciben la misma cadena** (5 gestos sorteados al iniciar;
+pueden repetirse dentro de la cadena, nunca dos iguales seguidos). Cada jugador
+avanza a su ritmo completando el gesto que le toca.
 
 - Orden estricto: solo cuenta el gesto de la posición actual; los demás no avanzan.
 - Fallar no penaliza, solo cuesta tiempo: el objetivo no cambia hasta acertarlo.

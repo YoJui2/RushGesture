@@ -475,7 +475,7 @@ class ChainRace:
         self.phase = PHASE_IDLE
         self.winner = None
         self.phase_started_at = 0.0
-        self._last_chain = None
+        # _last_chain se conserva para que la revancha no repita la misma cadena.
         self._countdown_end = 0.0
         self._play_start = 0.0
         self._close_at = None
@@ -494,21 +494,18 @@ class ChainRace:
         self._close_at = None
 
     def _pick_chain(self) -> tuple[str, ...]:
+        # Se sortea paso a paso: un gesto puede repetirse en la cadena, pero
+        # nunca dos veces seguidas.
         pool = list(self.gestures)
-        if self.chain_length <= len(pool):
-            chain = tuple(self._rng.sample(pool, self.chain_length))
-        else:
-            # Mas pasos que gestos disponibles: se permiten repeticiones, pero
-            # nunca dos iguales seguidos.
-            steps: list[str] = []
-            previous: str | None = None
-            for _ in range(self.chain_length):
-                options = [g for g in pool if g != previous]
-                previous = self._rng.choice(options)
-                steps.append(previous)
-            chain = tuple(steps)
+        steps: list[str] = []
+        previous: str | None = None
+        for _ in range(self.chain_length):
+            options = [g for g in pool if g != previous]
+            previous = self._rng.choice(options)
+            steps.append(previous)
+        chain = tuple(steps)
 
-        if chain == self._last_chain:
+        if len(chain) > 1 and chain == self._last_chain:
             # Evita repetir exactamente la cadena anterior.
             chain = chain[1:] + chain[:1]
         self._last_chain = chain
