@@ -23,17 +23,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gesture_rush import config  # noqa: E402
 from gesture_rush.camera import CameraError  # noqa: E402
-from gesture_rush.game import Duel  # noqa: E402
+from gesture_rush.game import ChainRace, Duel  # noqa: E402
 from gesture_rush.live import CameraPipeline, DemoPipeline  # noqa: E402
 from gesture_rush.ui import GestureRushApp  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Gesture Rush - Duelo de gestos")
+    parser = argparse.ArgumentParser(description="Gesture Rush - minijuegos de gestos")
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="sin camara: dos jugadores simulados (para probar la interfaz)",
+        help="sin camara: jugadores simulados (para probar la interfaz)",
     )
     parser.add_argument(
         "--camera",
@@ -52,7 +52,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--rounds",
         type=int,
         default=5,
-        help="rondas por partida (0 = sin limite)",
+        help="rondas por partida del duelo (0 = sin limite)",
+    )
+    parser.add_argument(
+        "--chain",
+        type=int,
+        default=5,
+        help="gestos por cadena en el modo cadena (por defecto 5)",
+    )
+    parser.add_argument(
+        "--game",
+        choices=("menu", "duel", "chain"),
+        default="menu",
+        help="pantalla inicial (por defecto el menu)",
     )
     return parser.parse_args(argv)
 
@@ -60,6 +72,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     duel = Duel(num_players=args.players, total_rounds=args.rounds)
+    chain = ChainRace(num_players=args.players, chain_length=args.chain)
 
     if args.demo:
         pipeline = DemoPipeline(duel)
@@ -82,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
             print("Proba con --demo para ver la interfaz sin camara.")
             return 1
 
-    app = GestureRushApp(duel, pipeline, demo=args.demo)
+    app = GestureRushApp(duel, chain, pipeline, demo=args.demo)
+    if args.game != "menu":
+        app.start_game(args.game)
     app.run()
     return 0
 

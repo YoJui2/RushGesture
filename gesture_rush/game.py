@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import config
 
@@ -150,6 +150,12 @@ class Duel:
             return max(0, int(round((now - self._play_start) * 1000.0)))
         return None
 
+    def current_target(self, player: int) -> str | None:
+        """Gesto que debe hacer ``player`` ahora mismo."""
+        if self.phase != PHASE_PLAYING:
+            return None
+        return self.target
+
     def countdown_value(self, now: float) -> int:
         remaining = max(0.0, self._countdown_end - now)
         return int(math.ceil(remaining))
@@ -279,3 +285,232 @@ class Duel:
         target = self._rng.choice(options or list(self.gestures))
         self._last_target = target
         return target
+
+
+# ---------------------------------------------------------------------------
+# Modo cadena
+# ---------------------------------------------------------------------------
+@dataclass
+class ChainPlayer:
+    """Estado de un jugador dentro de la carrera."""
+
+    index: int
+    progress: int = 0
+    finished_ms: int | None = None
+    step_times_ms: list[int] = field(default_factory=list)
+    misses: int = 0
+    live_label: str | None = None
+    live_confidence: float = 0.0
+
+    @property
+    def done(self) -> bool:
+        return self.finished_ms is not None
+
+
+class ChainRace:
+    """Carrera por una cadena de gestos.
+
+    Los dos jugadores reciben **la misma cadena** y avanzan una posicion por
+    cada acierto, en orden. Gana quien la completa antes; si los dos llegan,
+    gana el tiempo total mas bajo. Fallar no penaliza: solo cuesta tiempo,
+    porque el objetivo de cada jugador no cambia hasta que lo acierta.
+    """
+
+    def __init__(
+        self,
+        num_players: int = 2,
+        chain_length: int = 5,
+        *,
+        rng: random.Random | None = None,
+        countdown_seconds: float = 3.0,
+        grace_seconds: float = 2.0,
+        race_timeout: float = 45.0,
+        confidence_threshold: float = config.CONFIDENCE_THRESHOLD,
+        gestures: tuple[str, ...] | None = None,
+    ) -> None:
+        if num_players < 1:
+            raise ValueError("Hace falta al menos un jugador")
+        self.num_players = num_players
+        self.chain_length = max(1, int(chain_length))
+        self.countdown_seconds = float(countdown_seconds)
+        self.grace_seconds = float(grace_seconds)
+        self.race_timeout = float(race_timeout)
+        self.confidence_threshold = float(confidence_threshold)
+        self.gestures = tuple(config.GESTURES if gestures is None else gestures)
+        if not self.gestures:
+            raise ValueError("La lista de gestos no puede estar vacia")
+        if len(self.gestures) < 2:
+            raise ValueError("La cadena necesita al menos dos gestos distintos")
+
+        self._rng = rng or random.Random()
+        self.players = [ChainPlayer(index=i) for i in range(num_players)]
+        self.chain: tuple[str, ...] = ()
+        self.phase = PHASE_IDLE
+        self.winner: int | None = None
+        self.phase_started_at = 0.0
+
+        self._last_chain: tuple[str, ...] | None = None
+        self._countdown_end = 0.0
+        self._play_start = 0.0
+        self._close_at: float | None = None
+
+    # -- Consultas -----------------------------------------------------------
+    @property
+    def num_steps(self) -> int:
+        return len(self.chain)
+
+    def current_target(self, player: int) -> str | None:
+        """Gesto que ``player`` tiene que hacer para avanzar."""
+        if self.phase != PHASE_PLAYING:
+            return None
+        if not 0 <= player < self.num_players:
+            return None
+        score = self.players[player]
+        if score.progress >= len(self.chain):
+            return None
+        return self.chain[score.progress]
+
+    def elapsed_ms(self, player: int, now: float) -> int | None:
+        score = self.players[player]
+        if score.finished_ms is not None:
+            return score.finished_ms
+        if self.phase == PHASE_PLAYING:
+            return max(0, int(round((now - self._play_start) * 1000.0)))
+        return None
+
+    def average_step_ms(self, player: int) -> int | None:
+        steps = self.players[player].step_times_ms
+        if not steps:
+            return None
+        return int(round(sum(steps) / len(steps)))
+
+    def countdown_value(self, now: float) -> int:
+        remaining = max(0.0, self._countdown_end - now)
+        return int(math.ceil(remaining))
+
+    def play_elapsed(self, now: float) -> float:
+        if self.phase in (PHASE_PLAYING, PHASE_FINISHED):
+            return max(0.0, now - self._play_start)
+        return 0.0
+
+    def standings(self) -> list[ChainPlayer]:
+        def key(score: ChainPlayer) -> tuple[int, int, int]:
+            best = score.finished_ms if score.finished_ms is not None else 10**9
+            return (0 if score.done else 1, -score.progress, best)
+
+        return sorted(self.players, key=key)
+
+    # -- Transiciones --------------------------------------------------------
+    def start(self, now: float) -> bool:
+        if self.phase == PHASE_FINISHED:
+            self.reset()
+        if self.phase not in (PHASE_IDLE, PHASE_RESULT):
+            return False
+        self.chain = self._pick_chain()
+        self.winner = None
+        for score in self.players:
+            score.progress = 0
+            score.finished_ms = None
+            score.step_times_ms = []
+            score.misses = 0
+            score.live_label = None
+            score.live_confidence = 0.0
+        self._close_at = None
+        self._countdown_end = now + self.countdown_seconds
+        self.phase = PHASE_COUNTDOWN
+        self.phase_started_at = now
+        return True
+
+    def tick(self, now: float) -> None:
+        if self.phase == PHASE_COUNTDOWN and now >= self._countdown_end:
+            self.phase = PHASE_PLAYING
+            self.phase_started_at = now
+            self._play_start = now
+        if self.phase != PHASE_PLAYING:
+            return
+        if self._close_at is not None and now >= self._close_at:
+            self._close(now)
+        elif (now - self._play_start) >= self.race_timeout:
+            self._close(now)
+
+    def observe(
+        self,
+        player: int,
+        label: str | None,
+        confidence: float,
+        now: float,
+    ) -> bool:
+        """Registra una prediccion. ``True`` si el jugador avanzo un paso."""
+        if self.phase != PHASE_PLAYING:
+            return False
+        if not 0 <= player < self.num_players:
+            return False
+        score = self.players[player]
+        score.live_label = label
+        score.live_confidence = confidence
+        if score.progress >= len(self.chain):
+            return False
+
+        expected = self.chain[score.progress]
+        if label is None or label != expected or confidence < self.confidence_threshold:
+            if label is not None:
+                score.misses += 1
+            return False
+
+        elapsed = max(0, int(round((now - self._play_start) * 1000.0)))
+        # Se guarda la duracion de este paso, no el tiempo acumulado.
+        score.step_times_ms.append(max(0, elapsed - sum(score.step_times_ms)))
+        score.progress += 1
+        if score.progress >= len(self.chain):
+            score.finished_ms = elapsed
+            if self._close_at is None:
+                self._close_at = now + self.grace_seconds
+            if all(other.done for other in self.players):
+                self._close(now)
+        return True
+
+    def reset(self) -> None:
+        self.players = [ChainPlayer(index=i) for i in range(self.num_players)]
+        self.chain = ()
+        self.phase = PHASE_IDLE
+        self.winner = None
+        self.phase_started_at = 0.0
+        self._last_chain = None
+        self._countdown_end = 0.0
+        self._play_start = 0.0
+        self._close_at = None
+
+    # -- Internos ------------------------------------------------------------
+    def _close(self, now: float) -> None:
+        finished = {p.index: p.finished_ms for p in self.players if p.done}
+        winner: int | None = None
+        if finished:
+            best = min(finished.values())
+            leaders = [index for index, ms in finished.items() if ms == best]
+            winner = leaders[0] if len(leaders) == 1 else None
+        self.winner = winner
+        self.phase = PHASE_FINISHED
+        self.phase_started_at = now
+        self._close_at = None
+
+    def _pick_chain(self) -> tuple[str, ...]:
+        pool = list(self.gestures)
+        if self.chain_length <= len(pool):
+            chain = tuple(self._rng.sample(pool, self.chain_length))
+        else:
+            # Mas pasos que gestos disponibles: se permiten repeticiones, pero
+            # nunca dos iguales seguidos.
+            steps: list[str] = []
+            previous: str | None = None
+            for _ in range(self.chain_length):
+                options = [g for g in pool if g != previous]
+                previous = self._rng.choice(options)
+                steps.append(previous)
+            chain = tuple(steps)
+
+        if chain == self._last_chain:
+            # Evita repetir exactamente la cadena anterior.
+            chain = chain[1:] + chain[:1]
+        self._last_chain = chain
+        return chain
+

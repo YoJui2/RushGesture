@@ -26,6 +26,7 @@ from .game import (
     PHASE_IDLE,
     PHASE_PLAYING,
     PHASE_RESULT,
+    ChainRace,
     Duel,
 )
 
@@ -311,6 +312,82 @@ def points_label(points: int) -> str:
     return f"{points} pt" if points == 1 else f"{points} pts"
 
 
+def draw_arena_header(
+    surface: pygame.Surface,
+    fonts: Fonts,
+    title: str,
+    num_players: int,
+) -> None:
+    """Cabecera comun a las pantallas de juego."""
+    draw_text(surface, fonts, title, 30, TEXT, (MARGIN, 26), bold=True)
+    draw_text(
+        surface, fonts, "ESC · menú", 15, MUTED,
+        (WIDTH - MARGIN - 214, 34), anchor="topright",
+    )
+    draw_pill(
+        surface, fonts,
+        f"1 cámara · {num_players} personas",
+        (WIDTH - MARGIN, 22), CARD_SOFT, MUTED, size=16, anchor="topright",
+    )
+
+
+def draw_player_panel(
+    surface: pygame.Surface,
+    fonts: Fonts,
+    rect: pygame.Rect,
+    *,
+    index: int,
+    num_players: int,
+    frame: np.ndarray | None,
+    demo: bool,
+    label: str | None,
+    confidence: float,
+    border: tuple[int, int, int] | None = None,
+) -> pygame.Rect:
+    """Fondo del panel, recuadro de camara, avatar y chip de prediccion."""
+    color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
+    inner = PLAYER_INNER[index % len(PLAYER_INNER)]
+    draw_card(surface, rect, CARD, radius=20, border=border or BORDER)
+
+    side = "izquierda" if index == 0 else ("derecha" if index == num_players - 1 else "centro")
+    draw_text(
+        surface, fonts, f"Cámara única · mitad {side}", 15, MUTED,
+        (rect.x + 18, rect.y + 16),
+    )
+
+    viewport = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
+    pygame.draw.rect(surface, inner, viewport, border_radius=14)
+
+    if frame is not None:
+        image, size = frame_surface(frame, index, num_players, viewport.size)
+        masked = image.copy()
+        masked.blit(rounded_mask(size, 12), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(masked, masked.get_rect(center=viewport.center))
+    else:
+        draw_avatar(surface, (viewport.centerx, viewport.centery - 6), color, 1.25)
+        caption = "sin cámara · modo demo" if demo else "sin señal de cámara"
+        draw_text(
+            surface, fonts, caption, 14, MUTED,
+            (viewport.centerx, viewport.bottom - 12), anchor="midbottom",
+        )
+
+    pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
+
+    if label is not None:
+        text = (
+            f"Jugador {index + 1} · {short_label(label)} {confidence * 100:.0f}%"
+        )
+        chip_bg, chip_fg = color, (14, 18, 34)
+    else:
+        text = f"Jugador {index + 1} · sin mano"
+        chip_bg, chip_fg = CARD_SOFT, MUTED
+    draw_pill(
+        surface, fonts, text, (viewport.centerx, viewport.bottom),
+        chip_bg, chip_fg, size=15, bold=True, anchor="midtop",
+    )
+    return viewport
+
+
 # ---------------------------------------------------------------------------
 # Pantallas
 # ---------------------------------------------------------------------------
@@ -338,18 +415,18 @@ class MenuScreen(Screen):
         {
             "key": "duel",
             "title": "Duelo de gestos",
-            "desc": "Una cámara, dos personas. El primero en hacer el gesto objetivo se lleva el punto.",
+            "desc": "El mismo gesto para los dos: el primero en hacerlo se lleva el punto.",
             "tag": "1 cámara · 2 jugadores",
             "glyph": "fist",
             "enabled": True,
         },
         {
-            "key": "time",
-            "title": "Contrarreloj",
-            "desc": "Cuántos gestos correctos podés encadenar en un minuto.",
-            "tag": "Próximamente",
+            "key": "chain",
+            "title": "Cadena de gestos",
+            "desc": "La misma secuencia para los dos. El primero en completarla gana la carrera.",
+            "tag": "1 cámara · 2 jugadores",
             "glyph": "victory",
-            "enabled": False,
+            "enabled": True,
         },
         {
             "key": "cup",
@@ -375,13 +452,18 @@ class MenuScreen(Screen):
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                self.app.start_duel()
+                self.app.start_game("duel")
+            elif event.key == pygame.K_1:
+                self.app.start_game("duel")
+            elif event.key == pygame.K_2:
+                self.app.start_game("chain")
             elif event.key == pygame.K_ESCAPE:
                 self.app.running = False
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             for index, rect in enumerate(self.rects):
-                if rect.collidepoint(event.pos) and self.CARDS[index]["enabled"]:
-                    self.app.start_duel()
+                card = self.CARDS[index]
+                if rect.collidepoint(event.pos) and card["enabled"]:
+                    self.app.start_game(card["key"])
                     return
 
     def update(self, now: float) -> None:
@@ -550,17 +632,7 @@ class DuelScreen(Screen):
         self._draw_history(surface)
 
     def _draw_header(self, surface: pygame.Surface) -> None:
-        fonts = self.app.fonts
-        draw_text(surface, fonts, "Duelo de gestos", 30, TEXT, (MARGIN, 26), bold=True)
-        draw_text(
-            surface, fonts, "ESC · menú", 15, MUTED,
-            (WIDTH - MARGIN - 214, 34), anchor="topright",
-        )
-        draw_pill(
-            surface, fonts,
-            f"1 cámara · {self.duel.num_players} personas",
-            (WIDTH - MARGIN, 22), CARD_SOFT, MUTED, size=16, anchor="topright",
-        )
+        draw_arena_header(surface, self.app.fonts, "Duelo de gestos", self.duel.num_players)
 
     def _draw_hero(self, surface: pygame.Surface) -> None:
         fonts = self.app.fonts
@@ -680,54 +752,19 @@ class DuelScreen(Screen):
         fonts = self.app.fonts
         duel = self.duel
         score = duel.players[index]
-        color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
-        inner = PLAYER_INNER[index % len(PLAYER_INNER)]
 
         winner_now = (
             duel.phase in (PHASE_RESULT, PHASE_FINISHED) and score.won_last
         )
-        border = color if winner_now else BORDER
-        draw_card(surface, rect, CARD, radius=20, border=border)
-
-        side = "izquierda" if index == 0 else ("derecha" if index == duel.num_players - 1 else "centro")
-        draw_text(
-            surface, fonts, f"Cámara única · mitad {side}", 15, MUTED,
-            (rect.x + 18, rect.y + 16),
-        )
-
-        viewport = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
-        pygame.draw.rect(surface, inner, viewport, border_radius=14)
-
-        if self.frame is not None:
-            image, size = frame_surface(self.frame, index, duel.num_players, viewport.size)
-            masked = image.copy()
-            masked.blit(rounded_mask(size, 12), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-            surface.blit(masked, masked.get_rect(center=viewport.center))
-        else:
-            draw_avatar(surface, (viewport.centerx, viewport.centery - 6), color, 1.25)
-            caption = "sin cámara · modo demo" if self.app.demo else "sin señal de cámara"
-            draw_text(
-                surface, fonts, caption, 14, MUTED,
-                (viewport.centerx, viewport.bottom - 12), anchor="midbottom",
-            )
-
-        pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
-
-        # Chip con la prediccion en vivo, apoyado sobre el borde inferior.
-        if score.live_label is not None:
-            chip_text = (
-                f"Jugador {index + 1} · {short_label(score.live_label)} "
-                f"{score.live_confidence * 100:.0f}%"
-            )
-            chip_bg = color
-            chip_fg = (14, 18, 34)
-        else:
-            chip_text = f"Jugador {index + 1} · sin mano"
-            chip_bg = CARD_SOFT
-            chip_fg = MUTED
-        draw_pill(
-            surface, fonts, chip_text, (viewport.centerx, viewport.bottom),
-            chip_bg, chip_fg, size=15, bold=True, anchor="midtop",
+        draw_player_panel(
+            surface, fonts, rect,
+            index=index,
+            num_players=duel.num_players,
+            frame=self.frame,
+            demo=self.app.demo,
+            label=score.live_label,
+            confidence=score.live_confidence,
+            border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
         )
 
         elapsed = duel.elapsed_ms(index, self.now) if duel.phase == PHASE_PLAYING else score.last_ms
@@ -858,12 +895,316 @@ class DuelScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
+# Modo cadena
+# ---------------------------------------------------------------------------
+class ChainScreen(Screen):
+    """Carrera por una cadena de gestos: la misma lista para los dos."""
+
+    def __init__(self, app: "GestureRushApp") -> None:
+        super().__init__(app)
+        self.race: ChainRace = app.chain
+        self.frame: np.ndarray | None = None
+        self.readings = []
+        self.error: str | None = None
+
+        self.hero = pygame.Rect(MARGIN, 78, WIDTH - 2 * MARGIN, 226)
+        gap = 16
+        panel_w = (WIDTH - 2 * MARGIN - gap) // 2
+        self.panels = [
+            pygame.Rect(MARGIN + i * (panel_w + gap), 318, panel_w, 348)
+            for i in range(self.race.num_players)
+        ]
+        self.button_rect = pygame.Rect(MARGIN, 704, 300, 64)
+        self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
+        self.hover_button = False
+
+    # -- Eventos -------------------------------------------------------------
+    def handle_event(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.app.show_menu()
+            elif event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                self._start_race()
+            elif event.key == pygame.K_r:
+                self.race.reset()
+            elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                player = event.key - pygame.K_1
+                force = getattr(self.app.pipeline, "force", None)
+                if force is not None and player < self.race.num_players:
+                    force(player)
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.button_rect.collidepoint(event.pos) and self._can_start():
+                self._start_race()
+
+    def _can_start(self) -> bool:
+        return self.race.phase in (PHASE_IDLE, PHASE_RESULT, PHASE_FINISHED)
+
+    def _start_race(self) -> None:
+        if self._can_start():
+            self.race.start(self.now)
+
+    # -- Actualizacion -------------------------------------------------------
+    def update(self, now: float) -> None:
+        super().update(now)
+        try:
+            self.frame, self.readings = self.app.pipeline.read(now)
+            self.error = None
+        except Exception as exc:  # camara desconectada a mitad de carrera
+            self.frame, self.readings = None, []
+            self.error = str(exc)
+
+        self.race.tick(now)
+        for reading in self.readings:
+            score = self.race.players[reading.player]
+            score.live_label = reading.label
+            score.live_confidence = reading.confidence
+            if reading.stable is not None:
+                self.race.observe(reading.player, reading.stable, reading.confidence, now)
+
+        mouse = pygame.mouse.get_pos()
+        self.hover_button = self.button_rect.collidepoint(mouse) and self._can_start()
+
+    # -- Dibujo --------------------------------------------------------------
+    def draw(self) -> None:
+        surface = self.app.screen
+        surface.fill(BG)
+        draw_arena_header(surface, self.app.fonts, "Cadena de gestos", self.race.num_players)
+        self._draw_hero(surface)
+        for index, panel in enumerate(self.panels):
+            self._draw_panel(surface, index, panel)
+        self._draw_bottom(surface)
+        self._draw_scoreboard(surface)
+
+    def _draw_hero(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        hero = self.hero
+        draw_card(surface, hero, CARD, radius=22)
+        cx = hero.centerx
+
+        if race.phase == PHASE_COUNTDOWN:
+            draw_text(
+                surface, fonts, str(race.countdown_value(self.now)), 120, AMBER,
+                (cx, hero.centery - 34), bold=True, anchor="center",
+            )
+            draw_text(
+                surface, fonts, "Preparen la cadena", 22, MUTED,
+                (cx, hero.bottom - 36), anchor="midbottom",
+            )
+            return
+
+        if not race.chain:
+            draw_text(
+                surface, fonts, "Cadena de gestos", 44, TEXT,
+                (cx, hero.y + 52), bold=True, anchor="midtop",
+            )
+            draw_text(
+                surface, fonts, "La misma secuencia para los dos: el primero en completarla gana.",
+                22, MUTED, (cx, hero.y + 118), anchor="midtop",
+            )
+            draw_text(
+                surface, fonts,
+                f"{race.chain_length} gestos en orden · pulsen iniciar para sortear la cadena",
+                18, DIM, (cx, hero.y + 164), anchor="midtop",
+            )
+            return
+
+        self._draw_chain_strip(surface, hero.y + 14)
+        if race.phase == PHASE_FINISHED:
+            self._draw_winner(surface, cx)
+        else:
+            draw_text(
+                surface, fonts, "El primero en completar la cadena gana", 19, MUTED,
+                (cx, hero.y + 112), anchor="midtop",
+            )
+
+    def _draw_chain_strip(self, surface: pygame.Surface, top: int) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        steps = max(1, race.num_steps)
+        size = 58
+        step = min(118, (self.hero.w - 180) // steps)
+        x0 = self.hero.centerx - (step * (steps - 1)) // 2
+        for i, gesture in enumerate(race.chain):
+            x = x0 + i * step
+            glyph = hand_glyph(gesture, size)
+            surface.blit(glyph, glyph.get_rect(midtop=(x, top)))
+            draw_text(
+                surface, fonts, short_label(gesture), 13, MUTED,
+                (x, top + size + 2), anchor="midtop",
+            )
+
+    def _draw_winner(self, surface: pygame.Surface, cx: int) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        hero = self.hero
+        winner = race.winner
+
+        if winner is None:
+            draw_text(
+                surface, fonts, "Nadie completó la cadena", 38, MUTED,
+                (cx, hero.y + 102), bold=True, anchor="midtop",
+            )
+            draw_text(
+                surface, fonts, "Pulsen iniciar para otra carrera.", 19, MUTED,
+                (cx, hero.y + 160), anchor="midtop",
+            )
+            return
+
+        score = race.players[winner]
+        draw_text(
+            surface, fonts, f"Gana el jugador {winner + 1}", 40,
+            PLAYER_COLORS[winner % len(PLAYER_COLORS)],
+            (cx, hero.y + 102), bold=True, anchor="midtop",
+        )
+        detail = f"{race.num_steps} gestos en {format_ms(score.finished_ms)}"
+        rival = next((p for p in race.players if p.index != winner), None)
+        if rival is not None:
+            if rival.done and rival.finished_ms is not None:
+                margin = abs(rival.finished_ms - (score.finished_ms or 0))
+                detail += f" · diferencia de {margin} ms"
+            else:
+                detail += f" · el jugador {rival.index + 1} quedó en {rival.progress}/{race.num_steps}"
+        draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 160), anchor="midtop")
+
+    def _draw_panel(self, surface: pygame.Surface, index: int, rect: pygame.Rect) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        score = race.players[index]
+        winner_now = race.phase == PHASE_FINISHED and race.winner == index
+
+        draw_player_panel(
+            surface, fonts, rect,
+            index=index,
+            num_players=race.num_players,
+            frame=self.frame,
+            demo=self.app.demo,
+            label=score.live_label,
+            confidence=score.live_confidence,
+            border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
+        )
+
+        elapsed = race.elapsed_ms(index, self.now)
+        timer_rect = draw_text(
+            surface, fonts, format_ms(elapsed), 44,
+            TEXT if elapsed is not None else DIM,
+            (rect.x + 18, rect.y + 250), bold=True,
+        )
+        if winner_now:
+            draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
+        draw_text(
+            surface, fonts, f"{score.progress}/{race.num_steps}", 22, MUTED,
+            (rect.right - 18, rect.y + 268), anchor="topright",
+        )
+        self._draw_progress_dots(surface, rect, score)
+
+    def _draw_progress_dots(self, surface: pygame.Surface, rect: pygame.Rect, score) -> None:
+        race = self.race
+        total = max(1, race.num_steps)
+        y = rect.y + 324
+        for i in range(total):
+            x = rect.x + 24 + i * 30
+            if i < score.progress:
+                pygame.draw.circle(surface, GOOD, (x, y), 9)
+                draw_check(surface, (x, y), 10, (10, 18, 12), 2)
+            elif i == score.progress and race.phase == PHASE_PLAYING:
+                pygame.draw.circle(surface, AMBER, (x, y), 9, 2)
+            else:
+                pygame.draw.circle(surface, (52, 62, 100), (x, y), 8)
+
+    def _draw_bottom(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        can_start = self._can_start()
+
+        if race.phase in (PHASE_PLAYING, PHASE_COUNTDOWN):
+            label = "Carrera en curso"
+        elif race.phase == PHASE_FINISHED:
+            label = "Otra carrera"
+        else:
+            label = "Iniciar carrera"
+
+        bg = (240, 242, 250) if can_start else CARD_SOFT
+        fg = (16, 20, 38) if can_start else MUTED
+        if self.hover_button:
+            bg = (255, 255, 255)
+        pygame.draw.rect(surface, bg, self.button_rect, border_radius=32)
+        draw_text(
+            surface, fonts, label, 22, fg, self.button_rect.center,
+            bold=True, anchor="center",
+        )
+
+        draw_card(surface, self.note_rect, (20, 25, 48), radius=16, border=(36, 44, 76))
+        draw_paragraph(
+            surface, fonts,
+            "Misma cadena para los dos. Cada acierto avanza una posición y fallar "
+            "solo cuesta tiempo. Gana quien completa el último gesto antes; si "
+            "llegan los dos, gana el tiempo total más bajo.",
+            15, MUTED, (self.note_rect.x + 18, self.note_rect.y + 16),
+            self.note_rect.w - 36, line_height=23,
+        )
+        if self.error:
+            draw_text(
+                surface, fonts, self.error[:110], 14, BAD,
+                (self.note_rect.x + 18, self.note_rect.bottom - 26),
+            )
+
+    def _draw_scoreboard(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        race = self.race
+        top = 806
+        draw_text(surface, fonts, "Jugador", 15, MUTED, (MARGIN + 10, top))
+        draw_text(surface, fonts, "Cadena", 15, MUTED, (MARGIN + 300, top))
+        draw_text(surface, fonts, "Tiempo total", 15, MUTED, (MARGIN + 560, top))
+        draw_text(surface, fonts, "Media por gesto", 15, MUTED, (MARGIN + 820, top))
+        pygame.draw.line(
+            surface, (38, 46, 78),
+            (MARGIN, top + 24), (WIDTH - MARGIN, top + 24), 1,
+        )
+
+        if not race.chain:
+            draw_text(
+                surface, fonts, "La cadena se sortea al iniciar la carrera.", 16, DIM,
+                (MARGIN + 10, top + 38),
+            )
+            return
+
+        for row, score in enumerate(race.players):
+            y = top + 40 + row * 26
+            color = PLAYER_COLORS[score.index % len(PLAYER_COLORS)]
+            draw_text(
+                surface, fonts, f"Jugador {score.index + 1}", 17, color,
+                (MARGIN + 10, y), bold=True,
+            )
+            draw_text(
+                surface, fonts, f"{score.progress}/{race.num_steps}", 17, TEXT,
+                (MARGIN + 300, y),
+            )
+            draw_text(
+                surface, fonts, format_ms(race.elapsed_ms(score.index, self.now)),
+                17, TEXT if score.done or race.phase == PHASE_PLAYING else DIM,
+                (MARGIN + 560, y),
+            )
+            draw_text(
+                surface, fonts, format_ms(race.average_step_ms(score.index)), 17, MUTED,
+                (MARGIN + 820, y),
+            )
+
+
+# ---------------------------------------------------------------------------
 # Aplicacion
 # ---------------------------------------------------------------------------
 class GestureRushApp:
     """Ventana, bucle principal y navegacion entre pantallas."""
 
-    def __init__(self, duel: Duel, pipeline, *, demo: bool = False) -> None:
+    def __init__(
+        self,
+        duel: Duel,
+        chain: ChainRace,
+        pipeline,
+        *,
+        demo: bool = False,
+    ) -> None:
         pygame.init()
         pygame.display.set_caption("Gesture Rush")
         self.screen = pygame.display.set_mode(
@@ -872,23 +1213,32 @@ class GestureRushApp:
         self.clock = pygame.time.Clock()
         self.fonts = Fonts()
         self.duel = duel
+        self.chain = chain
         self.pipeline = pipeline
         self.demo = demo
         self.running = True
 
-        self.menu_screen = MenuScreen(self)
-        self.duel_screen = DuelScreen(self)
-        self.active: Screen = self.menu_screen
+        self.screens: dict[str, Screen] = {
+            "menu": MenuScreen(self),
+            "duel": DuelScreen(self),
+            "chain": ChainScreen(self),
+        }
+        self.active: Screen = self.screens["menu"]
 
     # -- Navegacion ----------------------------------------------------------
     def show_menu(self) -> None:
-        self.active = self.menu_screen
+        self.active = self.screens["menu"]
 
-    def start_duel(self) -> None:
+    def start_game(self, key: str) -> None:
+        """Entra al minijuego ``key`` con datos limpios."""
+        game = self.duel if key == "duel" else self.chain
+        bind = getattr(self.pipeline, "bind", None)
+        if callable(bind):
+            bind(game)
         reset = getattr(getattr(self.pipeline, "tracker", None), "reset", None)
         if callable(reset):
             reset()
-        self.active = self.duel_screen
+        self.active = self.screens[key]
 
     # -- Bucle ---------------------------------------------------------------
     def run(self) -> None:

@@ -61,6 +61,10 @@ class CameraPipeline:
         return self._camera.fps if self._camera is not None else 0.0
 
     # -- Lectura -------------------------------------------------------------
+    def bind(self, game) -> None:
+        """La camara real no necesita saber que minijuego esta activo."""
+        self.current_game = game
+
     def read(self, now: float | None = None) -> tuple[np.ndarray | None, list[PlayerReading]]:
         if self._camera is None:
             self.start()
@@ -92,27 +96,37 @@ class DemoPipeline:
 
     def __init__(
         self,
-        duel,
+        game,
         *,
         rng: random.Random | None = None,
         min_delay: float = 0.9,
         max_delay: float = 2.8,
     ) -> None:
-        self.duel = duel
+        self.game = game
         self._rng = rng or random.Random()
         self.min_delay = float(min_delay)
         self.max_delay = float(max_delay)
-        self._round_key: tuple[int, str | None, str] | None = None
-        self._due: dict[int, float] = {}
+        # Por jugador: clave del objetivo actual y momento en que "acierta".
+        self._plan: dict[int, tuple[tuple, float]] = {}
         self._labels: dict[int, tuple[str | None, float]] = {}
         self._forced: set[int] = set()
 
     # -- API esperada por la interfaz ---------------------------------------
+    def bind(self, game) -> None:
+        """Cambia el minijuego simulado (duelo o cadena)."""
+        if game is self.game:
+            return
+        self.game = game
+        self._plan.clear()
+        self._labels.clear()
+        self._forced.clear()
+
     def read(self, now: float | None = None) -> tuple[np.ndarray | None, list[PlayerReading]]:
         now = time.perf_counter() if now is None else now
-        self._sync(now)
+        if self.game.phase == "playing":
+            self._simulate(now)
         readings: list[PlayerReading] = []
-        for player in range(self.duel.num_players):
+        for player in range(self.game.num_players):
             label, confidence = self._labels.get(player, (None, 0.0))
             stable = label if confidence >= config.CONFIDENCE_THRESHOLD else None
             readings.append(
@@ -127,7 +141,7 @@ class DemoPipeline:
         return None, readings
 
     def force(self, player: int) -> None:
-        """Hace que ``player`` acierte en el proximo ``read``."""
+        """Hace que ``player`` acierte su objetivo en el proximo ``read``."""
         self._forced.add(player)
 
     def close(self) -> None:
@@ -138,28 +152,35 @@ class DemoPipeline:
         return 0.0
 
     # -- Simulacion ----------------------------------------------------------
-    def _sync(self, now: float) -> None:
-        duel = self.duel
-        key = (duel.round_number, duel.target, duel.phase)
-        if key != self._round_key:
-            self._round_key = key
-            self._labels.clear()
-            self._forced.clear()
-            self._due = {
-                player: now + self._rng.uniform(self.min_delay, self.max_delay)
-                for player in range(duel.num_players)
-            }
+    def _simulate(self, now: float) -> None:
+        for player in range(self.game.num_players):
+            target = self.game.current_target(player)
+            key = (target, self.game.phase)
+            planned = self._plan.get(player)
+            if planned is None:
+                self._plan[player] = (
+                    key,
+                    now + self._rng.uniform(self.min_delay, self.max_delay),
+                )
+            elif planned[0] != key:
+                # Objetivo nuevo (ronda nueva o paso siguiente de la cadena):
+                # se reprograma el acierto y se consume el forzado anterior.
+                self._plan[player] = (
+                    key,
+                    now + self._rng.uniform(self.min_delay, self.max_delay),
+                )
+                self._forced.discard(player)
 
-        if duel.phase != "playing" or duel.target is None:
-            return
-
-        for player in range(duel.num_players):
-            if self._labels.get(player, (None, 0.0))[0] == duel.target:
+            if target is None:
+                self._labels[player] = (None, 0.0)
                 continue
-            due = self._due.get(player, now)
+
+            due = self._plan[player][1]
             if player in self._forced or now >= due:
-                self._labels[player] = (duel.target, self._rng.uniform(0.86, 0.99))
-                self._due[player] = now + 1.0  # no repetir el aviso
+                self._labels[player] = (target, self._rng.uniform(0.86, 0.99))
             else:
-                others = [g for g in self.duel.gestures if g != duel.target]
-                self._labels[player] = (self._rng.choice(others), self._rng.uniform(0.30, 0.58))
+                others = [g for g in self.game.gestures if g != target]
+                self._labels[player] = (
+                    self._rng.choice(others),
+                    self._rng.uniform(0.30, 0.58),
+                )

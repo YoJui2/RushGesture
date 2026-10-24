@@ -18,7 +18,7 @@ en tiempo real y una interfaz de juego en Pygame.
 | 3 | Random Forest / SVM-RBF / MLP + evaluación | Implementado |
 | 4 | Predictor en tiempo real con suavizado temporal | Implementado |
 | 5 | Asociación de manos a jugadores, rondas y puntuación | Implementado |
-| 6 | Interfaz visual: menú + «Duelo de gestos» | En curso |
+| 6 | Interfaz visual: menú + «Duelo de gestos» + «Cadena de gestos» | En curso |
 
 Quedan pendientes la calibración de regiones, el modo técnico con landmarks
 sobre el vídeo y las pruebas con tres personas en la máquina real (fases 6–8).
@@ -342,34 +342,53 @@ python scripts/run_predict.py
    python scripts/run_predict.py
    ```
 
-## Jugar: «Duelo de gestos» (Fase 6)
+## Jugar: minijuegos (Fase 6)
 
-Menú + minijuego clásico con **una sola cámara**. Cada jugador ocupa una mitad
-del encuadre (izquierda/derecha) y compite por hacer el gesto objetivo primero.
+Menú con dos minijuegos sobre **una sola cámara**. Cada jugador ocupa una mitad
+del encuadre (izquierda/derecha) y ambos ven la misma pantalla.
 
 ```bat
-python scripts/run_game.py            :: camara + modelo entrenado
-python scripts/run_game.py --demo     :: sin camara: jugadores simulados
+python scripts/run_game.py                    :: camara + modelo entrenado
+python scripts/run_game.py --demo             :: sin camara: jugadores simulados
+python scripts/run_game.py --demo --game chain
+python scripts/run_game.py --game duel --rounds 3
 ```
 
 | Opción | Para qué |
 |--------|----------|
-| `--demo` | No abre cámara ni carga el modelo; dos jugadores simulados. Ideal para trabajar la interfaz. |
+| `--demo` | No abre cámara ni carga el modelo; jugadores simulados. Ideal para trabajar la interfaz. |
+| `--game menu\|duel\|chain` | Pantalla inicial (por defecto el menú). |
 | `--players 2\|3` | Cantidad de franjas en el encuadre (2 por defecto). |
-| `--rounds N` | Rondas por partida (5 por defecto, `0` = sin límite). |
+| `--rounds N` | Rondas por partida del duelo (5 por defecto, `0` = sin límite). |
+| `--chain N` | Gestos por cadena en el modo cadena (5 por defecto). |
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
 
-Teclas: `ESPACIO`/`ENTER` inicia ronda, `R` reinicia la partida, `ESC` vuelve al
-menú (desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese
-jugador para probar el cierre de ronda y el marcador.
+Teclas: en el menú, `1`/`2` o clic eligen minijuego y `ENTER` arranca el duelo;
+`ESPACIO`/`ENTER` inicia ronda o carrera, `R` reinicia, `ESC` vuelve al menú
+(desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese jugador
+para probar el cierre de ronda, la cadena y el marcador.
 
-Reglas implementadas:
+### Duelo de gestos
+
+El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punto.
 
 - Cuenta atrás de 3 s, luego 8 s para hacer el gesto (barra de progreso).
 - El primero en acertar se lleva el punto; la ronda espera hasta 2 s al rival
   para registrar su tiempo, y la pantalla muestra la diferencia en ms.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
-- Al terminar las rondas se muestra el ganador de la partida y el marcador.
+- Al terminar las rondas se muestra el ganador de la partida y el historial.
+
+### Cadena de gestos
+
+**Los dos jugadores reciben la misma cadena** (5 gestos distintos, sorteados al
+iniciar). Cada jugador avanza a su ritmo completando el gesto que le toca.
+
+- Orden estricto: solo cuenta el gesto de la posición actual; los demás no avanzan.
+- Fallar no penaliza, solo cuesta tiempo: el objetivo no cambia hasta acertarlo.
+- Gana quien completa el último gesto antes. Cuando el primero termina, el rival
+  tiene 2 s para llegar; si llega, gana el tiempo total más bajo.
+- Si nadie termina en 45 s, la carrera queda desierta. Los tiempos idénticos son empate.
+- El marcador inferior muestra progreso, tiempo total y tiempo medio por gesto.
 
 La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la ventana,
 así que funciona igual en cualquier monitor. Si la cámara o el modelo faltan,
@@ -388,8 +407,9 @@ usá `--demo`; es también el modo de respaldo para la feria.
 | `python scripts/run_train.py` | Entrena, compara y guarda el modelo |
 | `python scripts/run_cv.py` | Validación cruzada por participante |
 | `python scripts/run_predict.py` | Predicción en tiempo real |
-| `python scripts/run_game.py` | Interfaz del Duelo de gestos (Fase 6) |
+| `python scripts/run_game.py` | Interfaz de los minijuegos (Fase 6) |
 | `python scripts/run_game.py --demo` | Interfaz sin cámara ni modelo |
+| `python scripts/run_game.py --game chain --chain 8` | Cadena de ocho gestos |
 | `python -m pytest -q` | Ejecuta las pruebas |
 
 ## Pruebas
@@ -399,8 +419,9 @@ python -m pytest -q
 ```
 
 Las pruebas no requieren webcam ni `mediapipe`; cubren normalización de features,
-dataset, entrenamiento/carga de modelos, predicción de las clases y estabilidad
-temporal.
+dataset, entrenamiento/carga de modelos, predicción de las clases, estabilidad
+temporal, reglas del duelo y de la cadena, asignación de manos a jugadores y el
+modo demo de punta a punta.
 
 ## Problemas frecuentes
 
@@ -462,9 +483,9 @@ gesture_rush/
   evaluate.py        Métricas, matriz de confusión, informes
   predictor.py       Inferencia + suavizado temporal
   player_tracker.py  Asociación de manos a jugadores (franjas del encuadre)
-  game.py            Reglas del Duelo de gestos: rondas, tiempos y puntos
+  game.py            Reglas del duelo y de la cadena: fases, tiempos y puntos
   live.py            Fuentes de datos para la UI (cámara real / demo)
-  ui.py              Interfaz Pygame: menú y pantalla de partida
+  ui.py              Interfaz Pygame: menú, duelo y cadena
 scripts/             Entradas ejecutables por fase + check_setup.py
 tests/               Pruebas pytest
 models/ data/ reports/ assets/   Artefactos del demo (versionados)
