@@ -344,8 +344,8 @@ python scripts/run_predict.py
 
 ## Jugar: minijuegos (Fase 6)
 
-Menú con tres modos sobre **una sola cámara**: Duelo y Cadena compiten (de 1 a
-3 jugadores, cada uno en su franja del encuadre) y Prueba diagnostica el modelo.
+Menú con tres modos sobre **una sola cámara**: Duelo y Cadena compiten (1 o 2
+jugadores, cada uno en su mitad del encuadre) y Prueba diagnostica el modelo.
 
 ```bat
 python scripts/run_game.py                    :: camara + modelo entrenado
@@ -359,12 +359,13 @@ python scripts/run_game.py --game practice    :: diagnostico del modelo
 |--------|----------|
 | `--demo` | No abre cámara ni carga el modelo; jugadores simulados. Ideal para trabajar la interfaz. |
 | `--game menu\|duel\|chain\|practice` | Pantalla inicial (por defecto el menú). |
-| `--players 1\|2\|3` | Jugadores en el encuadre: 1 (solo) a 3 (2 por defecto). |
+| `--players 1\|2` | Jugadores para Duelo y Cadena: 1 (solo) o 2 (por defecto). |
 | `--rounds N` | Rondas por partida del duelo (5 por defecto, `0` = sin límite). |
 | `--chain N` | Gestos por cadena en el modo cadena (5 por defecto). |
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
 
-Teclas: en el menú, `1`/`2`/`3` o clic eligen modo y `ENTER` arranca el duelo;
+Teclas: en el menú, `1`/`2`/`3` o clic eligen modo, **`P` o las píldoras
+«1 jugador / 2 jugadores» cambian la cantidad** y `ENTER` arranca el duelo;
 `ESPACIO`/`ENTER` inicia ronda o carrera, `R` reinicia, `ESC` vuelve al menú
 (desde el menú, sale). En `--demo`, `1` y `2` fuerzan el acierto de ese jugador
 para probar el cierre de ronda, la cadena y el marcador.
@@ -408,7 +409,7 @@ oculta) y una columna de diagnóstico:
 |----------|-------------|
 | Predicción cruda | Clase con mayor probabilidad (`argmax`) y su confianza, en % y en barra con el umbral marcado. |
 | Top 3 | Las tres clases más probables; barras parejas = el modelo duda entre gestos parecidos. |
-| Voto temporal | Etiqueta con más votos en la ventana y cuántos frames la sostienen (puntos). |
+| Voto temporal | Etiqueta con más votos en la ventana y cuántos frames la sostienen (cada frame aporta un voto; los puntos son los 7 lugares). |
 | El juego aceptaría | La etiqueta que el juego aceptaría con esta lectura: requiere 5 de los últimos 7 frames y confianza ≥ 60 %. |
 | Rendimiento | FPS de la cámara, ms de clasificar un frame y la configuración vigente del suavizado. |
 
@@ -423,8 +424,9 @@ Cómo se llega a un gesto confirmado:
    escala por el tamaño de la palma) → vector de 42 features.
 2. El clasificador devuelve una probabilidad por cada una de las 10 clases; la
    predicción cruda es la de mayor probabilidad.
-3. El **voto temporal** descarta parpadeos: exige que la misma etiqueta se
-   repita en la ventana antes de aceptarla.
+3. El **voto temporal** descarta parpadeos: cada frame clasificado aporta un
+   voto y la etiqueta se acepta solo si reúne 5 votos en los últimos 7
+   (~0,23 s a 30 fps).
 4. En Duelo y Cadena cada franja del encuadre se clasifica por separado, con su
    propio suavizado: una mano en la mitad izquierda nunca puntúa para el jugador
    de la derecha. Prueba usa una sola franja (el encuadre completo).

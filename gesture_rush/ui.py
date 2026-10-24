@@ -480,7 +480,7 @@ def draw_player_panel(
     color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
     draw_card(surface, rect, CARD, radius=20, border=border or BORDER)
 
-    side = "izquierda" if index == 0 else ("derecha" if index == num_players - 1 else "centro")
+    side = "izquierda" if index == 0 else "derecha"
     zone = "encuadre completo" if num_players == 1 else f"mitad {side}"
     draw_text(
         surface, fonts, f"Cámara única · {zone}", 15, MUTED,
@@ -535,7 +535,7 @@ class MenuScreen(Screen):
             "key": "duel",
             "title": "Duelo de gestos",
             "desc": "El mismo gesto para todos: el primero en hacerlo se lleva el punto.",
-            "tag": "1 cámara · 1 a 3 jugadores",
+            "tag": "1 cámara · 1 o 2 jugadores",
             "glyph": "fist",
             "enabled": True,
         },
@@ -543,7 +543,7 @@ class MenuScreen(Screen):
             "key": "chain",
             "title": "Cadena de gestos",
             "desc": "La misma secuencia para todos. El primero en completarla gana la carrera.",
-            "tag": "1 cámara · 1 a 3 jugadores",
+            "tag": "1 cámara · 1 o 2 jugadores",
             "glyph": "victory",
             "enabled": True,
         },
@@ -568,6 +568,20 @@ class MenuScreen(Screen):
         ]
         self.hover: int | None = None
 
+        # Selector de jugadores para Duelo y Cadena.
+        self.player_rects = [
+            pygame.Rect(WIDTH - MARGIN - 128, 70, 128, 40),   # 2 jugadores
+            pygame.Rect(WIDTH - MARGIN - 248, 70, 112, 40),   # 1 jugador
+        ]
+        self.players_label_right = self.player_rects[1].x - 14
+
+    # -- Selector de jugadores -----------------------------------------------
+    def _player_rect(self, count: int) -> pygame.Rect:
+        return self.player_rects[0] if count == 2 else self.player_rects[1]
+
+    def _choose_players(self, count: int) -> None:
+        self.app.set_players(count)
+
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
@@ -578,9 +592,15 @@ class MenuScreen(Screen):
                 self.app.start_game("chain")
             elif event.key == pygame.K_3:
                 self.app.start_game("practice")
+            elif event.key == pygame.K_p:
+                self._choose_players(1 if self.app.players == 2 else 2)
             elif event.key == pygame.K_ESCAPE:
                 self.app.running = False
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for count, rect in ((1, self.player_rects[1]), (2, self.player_rects[0])):
+                if rect.collidepoint(event.pos):
+                    self._choose_players(count)
+                    return
             for index, rect in enumerate(self.rects):
                 card = self.CARDS[index]
                 if rect.collidepoint(event.pos) and card["enabled"]:
@@ -594,6 +614,24 @@ class MenuScreen(Screen):
             (i for i, r in enumerate(self.rects) if r.collidepoint(mouse)), None
         )
 
+    def _draw_players_selector(self, surface: pygame.Surface) -> None:
+        """Elige cuántas personas juegan Duelo y Cadena."""
+        fonts = self.app.fonts
+        draw_text(
+            surface, fonts, "Jugadores", 15, MUTED,
+            (self.players_label_right, 82), anchor="topright",
+        )
+        for count, text in ((1, "1 jugador"), (2, "2 jugadores")):
+            rect = self._player_rect(count)
+            selected = self.app.players == count
+            bg = AMBER if selected else CARD_SOFT
+            fg = (26, 22, 8) if selected else MUTED
+            pygame.draw.rect(surface, bg, rect, border_radius=20)
+            draw_text(
+                surface, fonts, text, 15, fg, rect.center,
+                bold=selected, anchor="center",
+            )
+
     def draw(self) -> None:
         surface = self.app.screen
         fonts = self.app.fonts
@@ -603,6 +641,7 @@ class MenuScreen(Screen):
         draw_text(
             surface, fonts, "Elegí un minijuego", 22, MUTED, (MARGIN, 132)
         )
+        self._draw_players_selector(surface)
 
         for index, (card, rect) in enumerate(zip(self.CARDS, self.rects)):
             enabled = card["enabled"]
@@ -646,7 +685,7 @@ class MenuScreen(Screen):
 
         draw_text(
             surface, fonts,
-            "1, 2, 3 eligen minijuego · ESC salir · una sola cámara, jugadores por mitades",
+            "1, 2, 3 eligen minijuego · P o clic cambia jugadores · ESC salir",
             17, MUTED, (WIDTH // 2, 842), anchor="midtop",
         )
 
@@ -658,8 +697,8 @@ class MenuScreen(Screen):
             (guide.x + 22, guide.y + 16), bold=True,
         )
         steps = (
-            "Elegí el minijuego.",
-            "Cada jugador se para frente a una mitad del encuadre.",
+            "Elegí el minijuego y cuántos juegan.",
+            "Cada jugador se para frente a su parte del encuadre.",
             "Duelo y Cadena compiten; Prueba muestra lo que ve el modelo.",
         )
         for index, step in enumerate(steps):
@@ -1584,7 +1623,7 @@ class PracticeScreen(Screen):
                 pygame.draw.circle(surface, (48, 58, 92), (dx, rect.y + 344), 5)
         draw_text(
             surface, fonts,
-            f"{self.window} frames · confirma con {self.min_votes} votos",
+            f"{self.window} frames (1 voto cada uno) · confirma con {self.min_votes}",
             13, MUTED, (x + 20, rect.y + 358),
         )
 
@@ -1713,6 +1752,7 @@ class GestureRushApp:
         self.pipeline = pipeline
         self.demo = demo
         self.running = True
+        self.players = duel.num_players
 
         self.screens: dict[str, Screen] = {
             "menu": MenuScreen(self),
@@ -1725,6 +1765,33 @@ class GestureRushApp:
     # -- Navegacion ----------------------------------------------------------
     def show_menu(self) -> None:
         self.active = self.screens["menu"]
+
+    def set_players(self, count: int) -> None:
+        """Cambia entre 1 y 2 jugadores y rearma Duelo y Cadena.
+
+        Los motores y las pantallas guardan el numero de franjas, asi que se
+        reconstruyen con la misma configuracion (rondas, largo de cadena y
+        vocabulario) y el menu sigue activo.
+        """
+        count = 1 if int(count) <= 1 else 2
+        if count == self.players:
+            return
+        self.players = count
+        previous = (self.screens["duel"], self.screens["chain"])
+        self.duel = Duel(
+            num_players=count,
+            total_rounds=self.duel.total_rounds,
+            gestures=self.duel.gestures,
+        )
+        self.chain = ChainRace(
+            num_players=count,
+            chain_length=self.chain.chain_length,
+            gestures=self.chain.gestures,
+        )
+        self.screens["duel"] = DuelScreen(self)
+        self.screens["chain"] = ChainScreen(self)
+        if self.active in previous:
+            self.active = self.screens["menu"]
 
     def start_game(self, key: str) -> None:
         """Entra al minijuego ``key`` con datos limpios."""
