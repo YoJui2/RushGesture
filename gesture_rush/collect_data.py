@@ -7,6 +7,7 @@ y control de balance de clases.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +19,12 @@ from .hand_detector import HandDetector, draw_hand
 
 
 class DataCollector:
-    """Recolector interactivo de muestras etiquetadas."""
+    """Recolector interactivo de muestras etiquetadas.
+
+    Las muestras nuevas se acumulan en memoria y el archivo existente se carga
+    una sola vez, sin convertirlo a diccionarios. El conteo por clase se mantiene
+    incremental, de modo que dibujar el HUD no recorre el dataset en cada frame.
+    """
 
     def __init__(
         self,
@@ -34,14 +40,31 @@ class DataCollector:
         self.dedup_distance = dedup_distance
         self.dedup_memory = dedup_memory
 
-        self.rows: list[dict] = []
+        self._rows: list[dict] = []
+        self._existing: pd.DataFrame | None = None
+        self._counts: Counter[str] = Counter()
         self._recent: dict[str, list[np.ndarray]] = {}
         self._load_existing()
 
     def _load_existing(self) -> None:
-        if self.output_path.exists():
-            existing = pd.read_csv(self.output_path)
-            self.rows = existing.to_dict("records")
+        if not self.output_path.exists():
+            return
+        self._existing = pd.read_csv(self.output_path)
+        if "label" in self._existing.columns:
+            self._counts.update(
+                self._existing["label"].astype(str).value_counts().to_dict()
+            )
+
+    @property
+    def session_samples(self) -> int:
+        """Muestras agregadas en esta sesion."""
+        return len(self._rows)
+
+    @property
+    def total(self) -> int:
+        """Muestras que quedaran en el archivo al guardar."""
+        existing = 0 if self._existing is None else len(self._existing)
+        return existing + len(self._rows)
 
     def _is_duplicate(self, label: str, landmarks: np.ndarray) -> bool:
         recent = self._recent.setdefault(label, [])
@@ -71,17 +94,22 @@ class DataCollector:
                 "source": "real",
             }
         )
-        self.rows.append(row)
+        self._rows.append(row)
+        self._counts[label] += 1
         return True
 
     def counts(self) -> dict[str, int]:
-        df = pd.DataFrame(self.rows)
-        if df.empty:
-            return {g: 0 for g in config.GESTURES}
-        return {g: int((df["label"] == g).sum()) for g in config.GESTURES}
+        """Conteo por clase del archivo completo. Costo constante por llamada."""
+        return {g: int(self._counts.get(g, 0)) for g in config.GESTURES}
 
     def save(self) -> Path:
-        df = pd.DataFrame(self.rows)
+        new = pd.DataFrame(self._rows)
+        if self._existing is None or self._existing.empty:
+            df = new
+        elif new.empty:
+            df = self._existing
+        else:
+            df = pd.concat([self._existing, new], ignore_index=True)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.output_path, index=False)
         return self.output_path
@@ -178,7 +206,10 @@ def run_interactive(
         cam.release()
         cv2.destroyAllWindows()
         path = collector.save()
-        print(f"Guardadas {len(collector.rows)} muestras en {path}")
+        print(
+            f"Sesion: {collector.session_samples} muestras nuevas · "
+            f"total en {path}: {collector.total}"
+        )
         print("Balance:", collector.counts())
     return 0
 
