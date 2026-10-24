@@ -543,7 +543,7 @@ def frame_surface(
     num_players: int,
     size: tuple[int, int],
 ) -> tuple[pygame.Surface, tuple[int, int]]:
-    """Recorta la franja del jugador y la ajusta al recuadro sin deformar."""
+    """Recorta la franja del jugador (o el encuadre completo) y la ajusta sin deformar."""
     height, width = frame.shape[:2]
     part = max(1, width // num_players)
     crop = frame[:, player * part:(player + 1) * part]
@@ -671,10 +671,33 @@ def draw_hand_landmarks(
         )
 
 
+def _dim_other_bands(
+    surface: pygame.Surface,
+    image_rect: pygame.Rect,
+    index: int,
+    num_players: int,
+    color: tuple[int, int, int],
+) -> None:
+    """Atenua las franjas de los demas y marca los bordes de la propia."""
+    band = image_rect.w / num_players
+    left = int(round(index * band))
+    right = int(round(left + band))
+    overlay = pygame.Surface(image_rect.size, pygame.SRCALPHA)
+    overlay.fill((6, 10, 24, 135))
+    overlay.fill((0, 0, 0, 0), pygame.Rect(left, 0, right - left, image_rect.h))
+    surface.blit(overlay, image_rect.topleft)
+    for x in (left, right):
+        pygame.draw.line(
+            surface, color,
+            (image_rect.x + x, image_rect.y + 2),
+            (image_rect.x + x, image_rect.bottom - 2), 2,
+        )
+
+
 def draw_camera_viewport(
     surface: pygame.Surface,
     fonts: Fonts,
-    viewport: pygame.Rect,
+    area: pygame.Rect,
     *,
     index: int,
     num_players: int,
@@ -683,30 +706,38 @@ def draw_camera_viewport(
     color: tuple[int, int, int],
     avatar_scale: float = 1.25,
     landmarks: np.ndarray | None = None,
-) -> None:
-    """Recuadro con la imagen del jugador (o el avatar si no hay camara)."""
+) -> pygame.Rect:
+    """Dibuja el encuadre completo dentro de ``area`` y devuelve su rectangulo.
+
+    La imagen se ajusta al aspecto real de la camara (sin franjas vacias dentro
+    del marco). Con mas de un jugador, la franja propia queda iluminada y el
+    resto atenuado.
+    """
     inner = PLAYER_INNER[index % len(PLAYER_INNER)]
-    pygame.draw.rect(surface, inner, viewport, border_radius=14)
+    pygame.draw.rect(surface, inner, area, border_radius=14)
 
     if frame is not None:
-        image, size = frame_surface(frame, index, num_players, viewport.size)
+        image, size = frame_surface(frame, 0, 1, area.size)
+        rect = pygame.Rect((0, 0), size)
+        rect.center = area.center
         masked = image.copy()
         masked.blit(rounded_mask(size, 12), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        surface.blit(masked, masked.get_rect(center=viewport.center))
+        surface.blit(masked, rect)
+        if num_players > 1:
+            _dim_other_bands(surface, rect, index, num_players, color)
         if landmarks is not None:
-            draw_hand_landmarks(
-                surface, viewport, size, landmarks,
-                index=index, num_players=num_players,
-            )
+            draw_hand_landmarks(surface, rect, size, landmarks)
     else:
-        draw_avatar(surface, (viewport.centerx, viewport.centery - 6), color, avatar_scale)
+        rect = area
+        draw_avatar(surface, (area.centerx, area.centery - 6), color, avatar_scale)
         caption = "sin cámara · modo demo" if demo else "sin señal de cámara"
         draw_text(
             surface, fonts, caption, 14, MUTED,
-            (viewport.centerx, viewport.bottom - 12), anchor="midbottom",
+            (area.centerx, area.bottom - 12), anchor="midbottom",
         )
 
-    pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
+    pygame.draw.rect(surface, color, rect, width=2, border_radius=12)
+    return rect
 
 
 def draw_player_panel(
@@ -720,8 +751,14 @@ def draw_player_panel(
     demo: bool,
     label: str | None,
     border: tuple[int, int, int] | None = None,
-) -> pygame.Rect:
-    """Fondo del panel, recuadro de camara, avatar y chip de prediccion."""
+    horizontal: bool = False,
+) -> tuple[pygame.Rect, pygame.Rect]:
+    """Panel de un jugador: camara, chip de prediccion y zona de datos.
+
+    Devuelve ``(rectangulo_de_video, rectangulo_de_datos)``. En el formato
+    horizontal (un solo jugador) el video va a la izquierda y los datos a la
+    derecha, para que la camara sea mas grande.
+    """
     color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
     draw_card(surface, rect, CARD, radius=20, border=border or BORDER)
 
@@ -732,11 +769,19 @@ def draw_player_panel(
         (rect.x + 18, rect.y + 16),
     )
 
-    viewport = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
-    draw_camera_viewport(
-        surface, fonts, viewport,
+    if horizontal:
+        area = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 300, rect.h - 64)
+        stats = pygame.Rect(rect.right - 258, rect.y + 46, 240, rect.h - 64)
+        avatar_scale = 1.5
+    else:
+        area = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
+        stats = pygame.Rect(rect.x + 18, rect.y + 254, rect.w - 36, rect.h - 272)
+        avatar_scale = 1.25
+
+    viewport = draw_camera_viewport(
+        surface, fonts, area,
         index=index, num_players=num_players,
-        frame=frame, demo=demo, color=color,
+        frame=frame, demo=demo, color=color, avatar_scale=avatar_scale,
     )
 
     if label is not None:
@@ -745,11 +790,19 @@ def draw_player_panel(
     else:
         text = f"Jugador {index + 1} · sin mano"
         chip_bg, chip_fg = CARD_SOFT, MUTED
-    draw_pill(
-        surface, fonts, text, (viewport.centerx, viewport.bottom),
-        chip_bg, chip_fg, size=15, bold=True, anchor="midtop",
-    )
-    return viewport
+
+    if horizontal:
+        draw_pill(
+            surface, fonts, text, (stats.x, stats.y),
+            chip_bg, chip_fg, size=15, bold=True, anchor="topleft",
+        )
+        stats = stats.move(0, 46)
+    else:
+        draw_pill(
+            surface, fonts, text, (viewport.centerx, viewport.bottom),
+            chip_bg, chip_fg, size=15, bold=True, anchor="midtop",
+        )
+    return viewport, stats
 
 
 # ---------------------------------------------------------------------------
@@ -1262,7 +1315,7 @@ class DuelScreen(Screen):
         winner_now = (
             duel.phase in (PHASE_RESULT, PHASE_FINISHED) and score.won_last
         )
-        draw_player_panel(
+        _viewport, stats = draw_player_panel(
             surface, fonts, rect,
             index=index,
             num_players=duel.num_players,
@@ -1270,6 +1323,7 @@ class DuelScreen(Screen):
             demo=self.app.demo,
             label=score.live_label,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
+            horizontal=duel.num_players == 1,
         )
 
         elapsed = duel.elapsed_ms(index, self.now) if duel.phase == PHASE_PLAYING else score.last_ms
@@ -1278,17 +1332,20 @@ class DuelScreen(Screen):
         timer_rect = draw_text(
             surface, fonts, format_seconds(elapsed), 46,
             TEXT if elapsed is not None else DIM,
-            (rect.x + 18, rect.y + 254), bold=True,
+            (stats.x, stats.y), bold=True,
         )
         if winner_now:
             draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
         draw_text(
             surface, fonts, points_label(score.points), 22, MUTED,
-            (rect.right - 18, rect.y + 272), anchor="topright",
+            (stats.right, stats.y + 18), anchor="topright",
         )
 
         status = self._status_text(index)
-        draw_text(surface, fonts, status, 15, DIM, (rect.x + 18, rect.y + 316))
+        draw_paragraph(
+            surface, fonts, status, 15, DIM,
+            (stats.x, stats.y + 62), stats.w, line_height=19,
+        )
 
     def _status_text(self, index: int) -> str:
         duel = self.duel
@@ -1631,7 +1688,7 @@ class ChainScreen(Screen):
         score = race.players[index]
         winner_now = race.phase == PHASE_FINISHED and race.winner == index
 
-        draw_player_panel(
+        _viewport, stats = draw_player_panel(
             surface, fonts, rect,
             index=index,
             num_players=race.num_players,
@@ -1639,28 +1696,29 @@ class ChainScreen(Screen):
             demo=self.app.demo,
             label=score.live_label,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
+            horizontal=race.num_players == 1,
         )
 
         elapsed = race.elapsed_ms(index, self.now)
         timer_rect = draw_text(
             surface, fonts, format_seconds(elapsed), 44,
             TEXT if elapsed is not None else DIM,
-            (rect.x + 18, rect.y + 250), bold=True,
+            (stats.x, stats.y), bold=True,
         )
         if winner_now:
             draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
         draw_text(
             surface, fonts, f"{score.progress}/{race.num_steps or race.chain_length}",
-            22, MUTED, (rect.right - 18, rect.y + 268), anchor="topright",
+            22, MUTED, (stats.right, stats.y + 18), anchor="topright",
         )
-        self._draw_progress_dots(surface, rect, score)
+        self._draw_progress_dots(surface, stats, score)
 
-    def _draw_progress_dots(self, surface: pygame.Surface, rect: pygame.Rect, score) -> None:
+    def _draw_progress_dots(self, surface: pygame.Surface, stats: pygame.Rect, score) -> None:
         race = self.race
         total = max(1, race.num_steps or race.chain_length)
-        y = rect.y + 324
+        y = stats.y + 70
         for i in range(total):
-            x = rect.x + 24 + i * 30
+            x = stats.x + 6 + i * 30
             if i < score.progress:
                 pygame.draw.circle(surface, GOOD, (x, y), 9)
                 draw_check(surface, (x, y), 10, (10, 18, 12), 2)

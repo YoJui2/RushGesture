@@ -375,6 +375,10 @@ Los iconos de cada gesto son PNG en `assets/hands/` (uno por clase). Si falta
 alguno, la interfaz dibuja un icono vectorial de respaldo, así que la app
 funciona igual sin esas imágenes.
 
+En Duelo y Cadena cada panel muestra el **encuadre completo** y resalta la
+franja del jugador (el resto queda atenuado): la cámara se ve más grande y queda
+claro qué mitad le corresponde a cada uno.
+
 ### Duelo de gestos
 
 El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punto.
