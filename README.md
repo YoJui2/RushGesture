@@ -374,7 +374,7 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
 
 - Cuenta atrás de 3 s, luego 8 s para hacer el gesto (barra de progreso).
 - El primero en acertar se lleva el punto; la ronda espera hasta 2 s al rival
-  para registrar su tiempo, y la pantalla muestra la diferencia en ms.
+  para registrar su tiempo, y la pantalla muestra la diferencia en segundos.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
 - Al terminar las rondas se muestra el ganador de la partida y el historial.
 

@@ -304,8 +304,11 @@ def frame_surface(
     return pygame.image.frombuffer(rgb.tobytes(), target, "RGB"), target
 
 
-def format_ms(value: int | None) -> str:
-    return "—" if value is None else f"{value} ms"
+def format_seconds(value: int | None) -> str:
+    """Tiempo en milisegundos -> texto en segundos (``1,23 s``)."""
+    if value is None:
+        return "—"
+    return f"{value / 1000.0:.2f}".replace(".", ",") + " s"
 
 
 def points_label(points: int) -> str:
@@ -341,7 +344,6 @@ def draw_player_panel(
     frame: np.ndarray | None,
     demo: bool,
     label: str | None,
-    confidence: float,
     border: tuple[int, int, int] | None = None,
 ) -> pygame.Rect:
     """Fondo del panel, recuadro de camara, avatar y chip de prediccion."""
@@ -374,9 +376,7 @@ def draw_player_panel(
     pygame.draw.rect(surface, color, viewport, width=2, border_radius=14)
 
     if label is not None:
-        text = (
-            f"Jugador {index + 1} · {short_label(label)} {confidence * 100:.0f}%"
-        )
+        text = f"Jugador {index + 1} · {short_label(label)}"
         chip_bg, chip_fg = color, (14, 18, 34)
     else:
         text = f"Jugador {index + 1} · sin mano"
@@ -734,7 +734,7 @@ class DuelScreen(Screen):
         )
         margin = record.margin_ms if record else None
         if margin is not None:
-            subtitle = f"Diferencia de {margin} ms. Pulsen iniciar para otra ronda."
+            subtitle = f"Diferencia de {format_seconds(margin)}. Pulsen iniciar para otra ronda."
         else:
             subtitle = "Sin rival en el tiempo. Pulsen iniciar para otra ronda."
         draw_text(surface, fonts, subtitle, 20, MUTED, (cx, hero.y + 152), anchor="midtop")
@@ -763,7 +763,6 @@ class DuelScreen(Screen):
             frame=self.frame,
             demo=self.app.demo,
             label=score.live_label,
-            confidence=score.live_confidence,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
         )
 
@@ -771,7 +770,7 @@ class DuelScreen(Screen):
         if duel.phase == PHASE_IDLE:
             elapsed = None
         timer_rect = draw_text(
-            surface, fonts, format_ms(elapsed), 46,
+            surface, fonts, format_seconds(elapsed), 46,
             TEXT if elapsed is not None else DIM,
             (rect.x + 18, rect.y + 254), bold=True,
         )
@@ -880,7 +879,7 @@ class DuelScreen(Screen):
             for player in range(duel.num_players):
                 value = record.times_ms.get(player)
                 draw_text(
-                    surface, fonts, format_ms(value), 17,
+                    surface, fonts, format_seconds(value), 17,
                     TEXT if value is not None else DIM,
                     (int(first_x + player * spacing), y),
                 )
@@ -1057,12 +1056,12 @@ class ChainScreen(Screen):
             PLAYER_COLORS[winner % len(PLAYER_COLORS)],
             (cx, hero.y + 102), bold=True, anchor="midtop",
         )
-        detail = f"{race.num_steps} gestos en {format_ms(score.finished_ms)}"
+        detail = f"{race.num_steps} gestos en {format_seconds(score.finished_ms)}"
         rival = next((p for p in race.players if p.index != winner), None)
         if rival is not None:
             if rival.done and rival.finished_ms is not None:
                 margin = abs(rival.finished_ms - (score.finished_ms or 0))
-                detail += f" · diferencia de {margin} ms"
+                detail += f" · diferencia de {format_seconds(margin)}"
             else:
                 detail += f" · el jugador {rival.index + 1} quedó en {rival.progress}/{race.num_steps}"
         draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 160), anchor="midtop")
@@ -1080,13 +1079,12 @@ class ChainScreen(Screen):
             frame=self.frame,
             demo=self.app.demo,
             label=score.live_label,
-            confidence=score.live_confidence,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
         )
 
         elapsed = race.elapsed_ms(index, self.now)
         timer_rect = draw_text(
-            surface, fonts, format_ms(elapsed), 44,
+            surface, fonts, format_seconds(elapsed), 44,
             TEXT if elapsed is not None else DIM,
             (rect.x + 18, rect.y + 250), bold=True,
         )
@@ -1181,12 +1179,12 @@ class ChainScreen(Screen):
                 (MARGIN + 300, y),
             )
             draw_text(
-                surface, fonts, format_ms(race.elapsed_ms(score.index, self.now)),
+                surface, fonts, format_seconds(race.elapsed_ms(score.index, self.now)),
                 17, TEXT if score.done or race.phase == PHASE_PLAYING else DIM,
                 (MARGIN + 560, y),
             )
             draw_text(
-                surface, fonts, format_ms(race.average_step_ms(score.index)), 17, MUTED,
+                surface, fonts, format_seconds(race.average_step_ms(score.index)), 17, MUTED,
                 (MARGIN + 820, y),
             )
 
