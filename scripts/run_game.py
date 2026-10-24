@@ -46,9 +46,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--players",
         type=int,
-        choices=(2, 3),
+        choices=(1, 2, 3),
         default=2,
-        help="jugadores en el encuadre (por defecto 2)",
+        help="jugadores en el encuadre: 1 (solo) a 3 (por defecto 2)",
     )
     parser.add_argument(
         "--rounds",

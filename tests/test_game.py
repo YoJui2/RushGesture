@@ -24,6 +24,41 @@ def make_duel(**kwargs) -> Duel:
     return Duel(**options)
 
 
+def test_solo_round_closes_immediately_without_waiting_for_a_rival():
+    duel = make_duel(num_players=1, total_rounds=2)
+    play_at = start_and_play(duel)
+
+    assert duel.observe(0, duel.target, 0.95, play_at + 0.8)
+
+    assert duel.phase == PHASE_RESULT, "sin rival no hay margen de espera"
+    assert duel.winner == 0
+    assert duel.times_ms[0] == 800
+    assert duel.players[0].points == 1
+    assert duel.current_round.margin_ms is None
+
+
+def test_solo_match_summary_uses_the_best_time():
+    duel = make_duel(num_players=1, total_rounds=2)
+    now = 0.0
+    assert duel.start(now)
+
+    now += 3.0
+    duel.tick(now)
+    assert duel.phase == PHASE_PLAYING
+    assert duel.observe(0, duel.target, 0.95, now + 0.5)
+    assert duel.phase == PHASE_RESULT
+    assert duel.start(now + 1.0)
+
+    now += 1.0 + 3.0
+    duel.tick(now)
+    assert duel.phase == PHASE_PLAYING
+    assert duel.observe(0, duel.target, 0.95, now + 0.7)
+    assert duel.phase == PHASE_FINISHED, "con una sola persona la partida cierra sola"
+
+    assert duel.match_winner == 0
+    assert duel.players[0].best_ms == 500
+
+
 def test_practice_session_is_a_single_camera_with_no_target():
     session = PracticeSession()
 

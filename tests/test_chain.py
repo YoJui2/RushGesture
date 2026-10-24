@@ -197,6 +197,18 @@ def test_standings_puts_the_winner_first():
     assert [p.index for p in standings] == [1, 0]
 
 
+def test_solo_chain_closes_as_soon_as_it_is_completed():
+    race = make_race(num_players=1, chain_length=3)
+    play_at = start_and_play(race)
+
+    finish_chain(race, 0, play_at, step_ms=250)
+
+    assert race.phase == PHASE_FINISHED, "sin rival no se espera el margen"
+    assert race.winner == 0
+    assert race.players[0].finished_ms == 750
+    assert race.average_step_ms(0) == 250
+
+
 def test_rematch_never_deals_the_exact_same_chain():
     race = make_race(chain_length=4, gestures=("fist", "victory"))
     play_at = start_and_play(race)

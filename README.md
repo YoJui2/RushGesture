@@ -344,9 +344,8 @@ python scripts/run_predict.py
 
 ## Jugar: minijuegos (Fase 6)
 
-Menú con tres modos sobre **una sola cámara**: Duelo y Cadena compiten, Prueba
-diagnostica el modelo. En los dos minijuegos cada jugador ocupa una mitad del
-encuadre (izquierda/derecha) y ambos ven la misma pantalla.
+Menú con tres modos sobre **una sola cámara**: Duelo y Cadena compiten (de 1 a
+3 jugadores, cada uno en su franja del encuadre) y Prueba diagnostica el modelo.
 
 ```bat
 python scripts/run_game.py                    :: camara + modelo entrenado
@@ -360,7 +359,7 @@ python scripts/run_game.py --game practice    :: diagnostico del modelo
 |--------|----------|
 | `--demo` | No abre cámara ni carga el modelo; jugadores simulados. Ideal para trabajar la interfaz. |
 | `--game menu\|duel\|chain\|practice` | Pantalla inicial (por defecto el menú). |
-| `--players 2\|3` | Cantidad de franjas en el encuadre (2 por defecto). |
+| `--players 1\|2\|3` | Jugadores en el encuadre: 1 (solo) a 3 (2 por defecto). |
 | `--rounds N` | Rondas por partida del duelo (5 por defecto, `0` = sin límite). |
 | `--chain N` | Gestos por cadena en el modo cadena (5 por defecto). |
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
@@ -379,6 +378,9 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
   para registrar su tiempo, y la pantalla muestra la diferencia en segundos.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
 - Al terminar las rondas se muestra el ganador de la partida y el historial.
+- **Solo (`--players 1`)**: contrarreloj. Sin rival, la ronda cierra en cuanto
+  acertás y el panel muestra tu tiempo; la partida resume las rondas jugadas y
+  el mejor tiempo.
 
 ### Cadena de gestos
 
@@ -392,12 +394,15 @@ avanza a su ritmo completando el gesto que le toca.
   tiene 2 s para llegar; si llega, gana el tiempo total más bajo.
 - Si nadie termina en 45 s, la carrera queda desierta. Los tiempos idénticos son empate.
 - El marcador inferior muestra progreso, tiempo total y tiempo medio por gesto.
+- **Solo (`--players 1`)**: contrarreloj. La carrera termina al completar la
+  cadena y el resumen muestra el tiempo total y la media por gesto.
 
 ### Prueba del modelo
 
 Modo sin reglas ni puntaje, pensado para **inspeccionar y explicar el
 clasificador en vivo**. Una sola vista de cámara (se clasifica la mano más
-centrada del encuadre) y una columna de diagnóstico:
+centrada del encuadre, con sus **21 landmarks** dibujados encima; `L` los
+oculta) y una columna de diagnóstico:
 
 | Elemento | Qué muestra |
 |----------|-------------|
