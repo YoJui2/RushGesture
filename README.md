@@ -360,16 +360,17 @@ python scripts/run_game.py --game practice    :: diagnostico del modelo
 | `--demo` | No abre cámara ni carga el modelo; jugadores simulados. Ideal para trabajar la interfaz. |
 | `--game menu\|duel\|chain\|practice` | Pantalla inicial (por defecto el menú). |
 | `--players 1\|2` | Jugadores para Duelo y Cadena: 1 (solo) o 2 (por defecto). |
-| `--rounds N` | Rondas por partida del duelo (5 por defecto, `0` = sin límite). |
+| `--rounds N` | Rondas del duelo: 3, 5 u 8 (5 por defecto; `0` = sin límite). |
+| `--windowed` | Arranca en ventana en vez de pantalla completa. |
 | `--chain N` | Gestos por cadena en el modo cadena (5 por defecto). |
 | `--camera N` | Índice de cámara; si se omite, usa `GESTURE_CAMERA_INDEX`. |
 
-Teclas: en el menú, `1`/`2`/`3` o clic eligen modo, **`P` o las píldoras
-«1 jugador / 2 jugadores» cambian la cantidad** y `ENTER` arranca el duelo.
-Para iniciar una ronda o carrera alcanza con que **todos los jugadores levanten
-el pulgar** (👍), o `ESPACIO`/`ENTER`/clic en el botón. `R` reinicia, `ESC`
-vuelve al menú (desde el menú, sale). En `--demo`, `1` y `2` simulan el pulgar
-arriba fuera de ronda y el acierto durante la ronda.
+Teclas: en el menú, `1`/`2`/`3` o clic eligen modo; las píldoras (o `P`)
+cambian jugadores y `R` rota las rondas (3, 5 u 8). `F11` alterna pantalla
+completa. Para iniciar una ronda o carrera alcanza con que **todos levanten el
+pulgar** (👍), o `ESPACIO`/`ENTER`/clic en el botón. En el duelo, la rueda del
+mouse o `↑`/`↓` recorren el historial de rondas. En `--demo`, `1` y `2` simulan
+el pulgar arriba fuera de ronda y el acierto durante la ronda.
 
 Los iconos de cada gesto son PNG en `assets/hands/` (uno por clase). Si falta
 alguno, la interfaz dibuja un icono vectorial de respaldo, así que la app
@@ -388,7 +389,9 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
   para registrar su tiempo, y la pantalla muestra la diferencia en segundos.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
 - La ronda arranca cuando **todos levantan el pulgar** (o con el botón/`ENTER`).
-- Al terminar las rondas se muestra el ganador de la partida y el historial.
+- Al terminar las rondas se muestra el ganador y el **historial completo**: la
+  rueda del mouse o `↑`/`↓` recorren todas las rondas jugadas.
+- Las rondas se eligen en el menú (3, 5 u 8; por defecto 5).
 - **Solo (`--players 1`)**: contrarreloj. Sin rival, la ronda cierra en cuanto
   acertás y el panel muestra tu tiempo; la partida resume las rondas jugadas y
   el mejor tiempo.
@@ -442,9 +445,10 @@ Cómo se llega a un gesto confirmado:
    propio suavizado: una mano en la mitad izquierda nunca puntúa para el jugador
    de la derecha. Prueba usa una sola franja (el encuadre completo).
 
-La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la ventana,
-así que funciona igual en cualquier monitor. Si la cámara o el modelo faltan,
-usá `--demo`; es también el modo de respaldo para la feria.
+La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la pantalla,
+así que funciona igual en cualquier monitor. Arranca en **pantalla completa**;
+`--windowed` (o `F11`) la pasa a ventana. Si la cámara o el modelo faltan, usá
+`--demo`; es también el modo de respaldo para la feria.
 
 ## Comandos de referencia
 

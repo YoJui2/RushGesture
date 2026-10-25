@@ -54,13 +54,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--rounds",
         type=int,
         default=5,
-        help="rondas por partida del duelo (0 = sin limite)",
+        help="rondas por partida del duelo: 3, 5 u 8 (por defecto 5; 0 = sin limite)",
     )
     parser.add_argument(
         "--chain",
         type=int,
         default=5,
         help="gestos por cadena en el modo cadena (por defecto 5)",
+    )
+    parser.add_argument(
+        "--windowed",
+        action="store_true",
+        help="arrancar en ventana (por defecto pantalla completa; F11 alterna)",
     )
     parser.add_argument(
         "--game",
@@ -98,7 +103,10 @@ def main(argv: list[str] | None = None) -> int:
             print("Proba con --demo para ver la interfaz sin camara.")
             return 1
 
-    app = GestureRushApp(duel, chain, practice, pipeline, demo=args.demo)
+    app = GestureRushApp(
+        duel, chain, practice, pipeline,
+        demo=args.demo, fullscreen=not args.windowed,
+    )
     if args.game != "menu":
         app.start_game(args.game)
     app.run()

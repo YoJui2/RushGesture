@@ -671,26 +671,79 @@ def draw_hand_landmarks(
         )
 
 
+def frame_cover(
+    frame: np.ndarray,
+    size: tuple[int, int],
+) -> tuple[pygame.Surface, tuple[float, float]]:
+    """Escala y recorta el frame para llenar ``size`` (sin deformar).
+
+    Devuelve la imagen y el tramo horizontal visible del frame original, que
+    hace falta para ubicar las franjas de los jugadores.
+    """
+    height, width = frame.shape[:2]
+    target_w, target_h = size
+    scale = max(target_w / width, target_h / height)
+    new_w = max(target_w, int(round(width * scale)))
+    new_h = max(target_h, int(round(height * scale)))
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    x0 = (new_w - target_w) // 2
+    y0 = (new_h - target_h) // 2
+    crop = resized[y0:y0 + target_h, x0:x0 + target_w]
+    rgb = np.ascontiguousarray(crop[:, :, ::-1])
+    visible = (x0 / new_w, (x0 + target_w) / new_w)
+    return pygame.image.frombuffer(rgb.tobytes(), (target_w, target_h), "RGB"), visible
+
+
+def _top_mask(size: tuple[int, int], radius: int) -> pygame.Surface:
+    """Mascara con las esquinas de arriba redondeadas (abajo recto)."""
+    mask = pygame.Surface(size, pygame.SRCALPHA)
+    mask.fill((0, 0, 0, 0))
+    pygame.draw.rect(
+        mask, (255, 255, 255, 255), mask.get_rect(), border_radius=radius
+    )
+    # Abajo recto: la barra de datos sigue sobre el fondo de la tarjeta.
+    pygame.draw.rect(
+        mask, (255, 255, 255, 255),
+        pygame.Rect(0, size[1] // 2, size[0], size[1] - size[1] // 2),
+    )
+    return mask
+
+
 def _dim_other_bands(
     surface: pygame.Surface,
     image_rect: pygame.Rect,
     index: int,
     num_players: int,
     color: tuple[int, int, int],
+    visible: tuple[float, float] = (0.0, 1.0),
 ) -> None:
-    """Atenua las franjas de los demas y marca los bordes de la propia."""
-    band = image_rect.w / num_players
-    left = int(round(index * band))
-    right = int(round(left + band))
+    """Atenua las franjas de los demas y marca el borde interno de la propia."""
+    left_norm, right_norm = visible
+    span = max(1e-6, right_norm - left_norm)
+
+    def to_px(normalized: float) -> int:
+        value = (normalized - left_norm) / span * image_rect.w
+        return int(max(0.0, min(float(image_rect.w), value)))
+
+    left = to_px(index / num_players)
+    right = to_px((index + 1) / num_players)
+
     overlay = pygame.Surface(image_rect.size, pygame.SRCALPHA)
-    overlay.fill((6, 10, 24, 135))
+    overlay.fill((6, 10, 24, 150))
     overlay.fill((0, 0, 0, 0), pygame.Rect(left, 0, right - left, image_rect.h))
     surface.blit(overlay, image_rect.topleft)
-    for x in (left, right):
+
+    if index > 0:
         pygame.draw.line(
             surface, color,
-            (image_rect.x + x, image_rect.y + 2),
-            (image_rect.x + x, image_rect.bottom - 2), 2,
+            (image_rect.x + left, image_rect.y),
+            (image_rect.x + left, image_rect.bottom), 2,
+        )
+    if index < num_players - 1:
+        pygame.draw.line(
+            surface, color,
+            (image_rect.x + right, image_rect.y),
+            (image_rect.x + right, image_rect.bottom), 2,
         )
 
 
@@ -751,58 +804,60 @@ def draw_player_panel(
     demo: bool,
     label: str | None,
     border: tuple[int, int, int] | None = None,
-    horizontal: bool = False,
-) -> tuple[pygame.Rect, pygame.Rect]:
-    """Panel de un jugador: camara, chip de prediccion y zona de datos.
+    bar_height: int = 66,
+) -> pygame.Rect:
+    """Ficha de un jugador: video arriba y una barra de datos abajo.
 
-    Devuelve ``(rectangulo_de_video, rectangulo_de_datos)``. En el formato
-    horizontal (un solo jugador) el video va a la izquierda y los datos a la
-    derecha, para que la camara sea mas grande.
+    Devuelve el rectangulo de la barra para que el llamador dibuje ahi el
+    tiempo y el progreso.
     """
     color = PLAYER_COLORS[index % len(PLAYER_COLORS)]
-    draw_card(surface, rect, CARD, radius=20, border=border or BORDER)
+    draw_card(surface, rect, CARD, radius=20)
 
-    side = "izquierda" if index == 0 else "derecha"
-    zone = "encuadre completo" if num_players == 1 else f"mitad {side}"
-    draw_text(
-        surface, fonts, f"Cámara única · {zone}", 15, MUTED,
-        (rect.x + 18, rect.y + 16),
-    )
+    tile = pygame.Rect(rect.x, rect.y, rect.w, rect.h - bar_height)
+    mask = _top_mask(tile.size, 18)
 
-    if horizontal:
-        area = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 300, rect.h - 64)
-        stats = pygame.Rect(rect.right - 258, rect.y + 46, 240, rect.h - 64)
-        avatar_scale = 1.5
+    if frame is not None:
+        image, visible = frame_cover(frame, tile.size)
+        masked = image.copy()
+        masked.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(masked, tile)
+        if num_players > 1:
+            _dim_other_bands(surface, tile, index, num_players, color, visible)
     else:
-        area = pygame.Rect(rect.x + 18, rect.y + 46, rect.w - 36, 190)
-        stats = pygame.Rect(rect.x + 18, rect.y + 254, rect.w - 36, rect.h - 272)
-        avatar_scale = 1.25
+        fill = pygame.Surface(tile.size, pygame.SRCALPHA)
+        fill.fill((16, 21, 40, 255))
+        fill.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(fill, tile)
+        draw_avatar(surface, (tile.centerx, tile.centery - 6), color, 1.35)
 
-    viewport = draw_camera_viewport(
-        surface, fonts, area,
-        index=index, num_players=num_players,
-        frame=frame, demo=demo, color=color, avatar_scale=avatar_scale,
-    )
-
+    # Nombre y gesto arriba a la izquierda; la franja, arriba a la derecha.
     if label is not None:
         text = f"Jugador {index + 1} · {short_label(label)}"
         chip_bg, chip_fg = color, (14, 18, 34)
     else:
         text = f"Jugador {index + 1} · sin mano"
-        chip_bg, chip_fg = CARD_SOFT, MUTED
+        chip_bg, chip_fg = (16, 20, 38), MUTED
+    draw_pill(
+        surface, fonts, text, (tile.x + 14, tile.y + 14),
+        chip_bg, chip_fg, size=15, bold=True, anchor="topleft",
+    )
+    if num_players > 1:
+        side = "izquierda" if index == 0 else "derecha"
+        draw_text(
+            surface, fonts, f"mitad {side}", 13, (226, 232, 246),
+            (tile.right - 14, tile.y + 20), anchor="topright",
+        )
+    if frame is None:
+        caption = "sin cámara · modo demo" if demo else "sin señal de cámara"
+        draw_text(
+            surface, fonts, caption, 13, MUTED,
+            (tile.centerx, tile.bottom - 24), anchor="midbottom",
+        )
 
-    if horizontal:
-        draw_pill(
-            surface, fonts, text, (stats.x, stats.y),
-            chip_bg, chip_fg, size=15, bold=True, anchor="topleft",
-        )
-        stats = stats.move(0, 46)
-    else:
-        draw_pill(
-            surface, fonts, text, (viewport.centerx, viewport.bottom),
-            chip_bg, chip_fg, size=15, bold=True, anchor="midtop",
-        )
-    return viewport, stats
+    pygame.draw.rect(surface, border or BORDER, rect, width=2, border_radius=20)
+    bar = pygame.Rect(rect.x, rect.bottom - bar_height, rect.w, bar_height)
+    return pygame.Rect(bar.x + 18, bar.y + 6, bar.w - 36, bar.h - 12)
 
 
 # ---------------------------------------------------------------------------
@@ -866,19 +921,27 @@ class MenuScreen(Screen):
         ]
         self.hover: int | None = None
 
-        # Selector de jugadores para Duelo y Cadena.
-        self.player_rects = [
-            pygame.Rect(WIDTH - MARGIN - 128, 70, 128, 40),   # 2 jugadores
-            pygame.Rect(WIDTH - MARGIN - 248, 70, 112, 40),   # 1 jugador
-        ]
-        self.players_label_right = self.player_rects[1].x - 14
+        # Selectores del menu: jugadores y rondas.
+        self.round_rects = self._segment_rects(
+            WIDTH - MARGIN, 70, ((3, 58), (5, 58), (8, 58))
+        )
+        self.rounds_label_right = min(r.x for r in self.round_rects.values()) - 14
+        self.player_rects = self._segment_rects(
+            self.rounds_label_right - 78, 70, ((1, 112), (2, 128))
+        )
+        self.players_label_right = min(r.x for r in self.player_rects.values()) - 14
 
-    # -- Selector de jugadores -----------------------------------------------
-    def _player_rect(self, count: int) -> pygame.Rect:
-        return self.player_rects[0] if count == 2 else self.player_rects[1]
-
-    def _choose_players(self, count: int) -> None:
-        self.app.set_players(count)
+    # -- Selectores ----------------------------------------------------------
+    @staticmethod
+    def _segment_rects(right: int, y: int, specs) -> dict[int, pygame.Rect]:
+        gap = 8
+        total = sum(width for _, width in specs) + gap * (len(specs) - 1)
+        x = right - total
+        rects: dict[int, pygame.Rect] = {}
+        for value, width in specs:
+            rects[value] = pygame.Rect(x, y, width, 40)
+            x += width + gap
+        return rects
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
@@ -891,13 +954,21 @@ class MenuScreen(Screen):
             elif event.key == pygame.K_3:
                 self.app.start_game("practice")
             elif event.key == pygame.K_p:
-                self._choose_players(1 if self.app.players == 2 else 2)
+                self.app.set_players(1 if self.app.players == 2 else 2)
+            elif event.key == pygame.K_r:
+                cycle = (3, 5, 8)
+                index = cycle.index(self.app.rounds) if self.app.rounds in cycle else 0
+                self.app.set_rounds(cycle[(index + 1) % len(cycle)])
             elif event.key == pygame.K_ESCAPE:
                 self.app.running = False
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            for count, rect in ((1, self.player_rects[1]), (2, self.player_rects[0])):
+            for value, rect in self.player_rects.items():
                 if rect.collidepoint(event.pos):
-                    self._choose_players(count)
+                    self.app.set_players(value)
+                    return
+            for value, rect in self.round_rects.items():
+                if rect.collidepoint(event.pos):
+                    self.app.set_rounds(value)
                     return
             for index, rect in enumerate(self.rects):
                 card = self.CARDS[index]
@@ -912,22 +983,42 @@ class MenuScreen(Screen):
             (i for i, r in enumerate(self.rects) if r.collidepoint(mouse)), None
         )
 
-    def _draw_players_selector(self, surface: pygame.Surface) -> None:
-        """Elige cuántas personas juegan Duelo y Cadena."""
+    def _draw_selectors(self, surface: pygame.Surface) -> None:
+        """Jugadores y rondas del duelo, elegidos desde el menu."""
         fonts = self.app.fonts
         draw_text(
             surface, fonts, "Jugadores", 15, MUTED,
             (self.players_label_right, 82), anchor="topright",
         )
-        for count, text in ((1, "1 jugador"), (2, "2 jugadores")):
-            rect = self._player_rect(count)
-            selected = self.app.players == count
-            bg = AMBER if selected else CARD_SOFT
-            fg = (26, 22, 8) if selected else MUTED
+        self._draw_segment(
+            surface, self.player_rects, self.app.players,
+            {1: "1 jugador", 2: "2 jugadores"},
+        )
+        draw_text(
+            surface, fonts, "Rondas", 15, MUTED,
+            (self.rounds_label_right, 82), anchor="topright",
+        )
+        self._draw_segment(
+            surface, self.round_rects, self.app.rounds,
+            {3: "3", 5: "5", 8: "8"},
+        )
+
+    def _draw_segment(
+        self,
+        surface: pygame.Surface,
+        rects: dict[int, pygame.Rect],
+        selected: int,
+        texts: dict[int, str],
+    ) -> None:
+        fonts = self.app.fonts
+        for value, rect in rects.items():
+            is_selected = value == selected
+            bg = AMBER if is_selected else CARD_SOFT
+            fg = (26, 22, 8) if is_selected else MUTED
             pygame.draw.rect(surface, bg, rect, border_radius=20)
             draw_text(
-                surface, fonts, text, 15, fg, rect.center,
-                bold=selected, anchor="center",
+                surface, fonts, texts[value], 15, fg, rect.center,
+                bold=is_selected, anchor="center",
             )
 
     def draw(self) -> None:
@@ -939,7 +1030,7 @@ class MenuScreen(Screen):
         draw_text(
             surface, fonts, "Elegí un minijuego", 22, MUTED, (MARGIN, 132)
         )
-        self._draw_players_selector(surface)
+        self._draw_selectors(surface)
 
         for index, (card, rect) in enumerate(zip(self.CARDS, self.rects)):
             enabled = card["enabled"]
@@ -983,7 +1074,7 @@ class MenuScreen(Screen):
 
         draw_text(
             surface, fonts,
-            "1, 2, 3 eligen minijuego · P o clic cambia jugadores · ESC salir",
+            "1, 2, 3 minijuego · P jugadores · R rondas · F11 pantalla · ESC salir",
             17, MUTED, (WIDTH // 2, 842), anchor="midtop",
         )
 
@@ -1083,11 +1174,27 @@ class DuelScreen(Screen):
         self.error: str | None = None
 
         self.hero = pygame.Rect(MARGIN, 78, WIDTH - 2 * MARGIN, 226)
-        self.panels = row_panels(self.duel.num_players, 318, 348, max_width=760)
+        self.panels = row_panels(self.duel.num_players, 318, 348, max_width=620)
         self.button_rect = pygame.Rect(MARGIN, 704, 300, 64)
-        self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
+        self.note_rect = pygame.Rect(MARGIN, 782, 300, 102)
+        self.history_rect = pygame.Rect(
+            MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 202
+        )
+        self.history_offset = 0
         self.hover_button = False
         self.gate = ThumbsUpGate(self.duel.num_players)
+
+    # -- Historial -----------------------------------------------------------
+    def _history_rows(self) -> int:
+        return max(1, (self.history_rect.h - 62) // 26)
+
+    def _history_max_offset(self) -> int:
+        return max(0, len(self.duel.history) - self._history_rows())
+
+    def _scroll_history(self, delta: int) -> None:
+        self.history_offset = max(
+            0, min(self._history_max_offset(), self.history_offset + delta)
+        )
 
     # -- Eventos -------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -1098,11 +1205,22 @@ class DuelScreen(Screen):
                 self._start_round()
             elif event.key == pygame.K_r:
                 self.duel.reset()
+            elif event.key == pygame.K_UP:
+                self._scroll_history(-1)
+            elif event.key == pygame.K_DOWN:
+                self._scroll_history(1)
+            elif event.key == pygame.K_PAGEUP:
+                self._scroll_history(-self._history_rows())
+            elif event.key == pygame.K_PAGEDOWN:
+                self._scroll_history(self._history_rows())
             elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
                 player = event.key - pygame.K_1
                 force = getattr(self.app.pipeline, "force", None)
                 if force is not None and player < self.duel.num_players:
                     force(player)
+        elif event.type == pygame.MOUSEWHEEL:
+            if self.history_rect.collidepoint(pygame.mouse.get_pos()):
+                self._scroll_history(-event.y)
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.button_rect.collidepoint(event.pos) and self._can_start():
                 self._start_round()
@@ -1315,7 +1433,7 @@ class DuelScreen(Screen):
         winner_now = (
             duel.phase in (PHASE_RESULT, PHASE_FINISHED) and score.won_last
         )
-        _viewport, stats = draw_player_panel(
+        stats = draw_player_panel(
             surface, fonts, rect,
             index=index,
             num_players=duel.num_players,
@@ -1323,28 +1441,25 @@ class DuelScreen(Screen):
             demo=self.app.demo,
             label=score.live_label,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
-            horizontal=duel.num_players == 1,
         )
 
         elapsed = duel.elapsed_ms(index, self.now) if duel.phase == PHASE_PLAYING else score.last_ms
         if duel.phase == PHASE_IDLE:
-            elapsed = None
+            elapsed = 0
+        draw_text(
+            surface, fonts, self._status_text(index), 13, (196, 206, 230),
+            (stats.x, stats.y),
+        )
         timer_rect = draw_text(
-            surface, fonts, format_seconds(elapsed), 46,
-            TEXT if elapsed is not None else DIM,
-            (stats.x, stats.y), bold=True,
+            surface, fonts, format_seconds(elapsed), 32,
+            TEXT if elapsed else (206, 214, 234),
+            (stats.x, stats.y + 16), bold=True,
         )
         if winner_now:
-            draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
+            draw_check(surface, (timer_rect.right + 18, timer_rect.centery), 16)
         draw_text(
-            surface, fonts, points_label(score.points), 22, MUTED,
-            (stats.right, stats.y + 18), anchor="topright",
-        )
-
-        status = self._status_text(index)
-        draw_paragraph(
-            surface, fonts, status, 15, DIM,
-            (stats.x, stats.y + 62), stats.w, line_height=19,
+            surface, fonts, points_label(score.points), 19, (214, 221, 240),
+            (stats.right, stats.y + 20), anchor="topright",
         )
 
     def _status_text(self, index: int) -> str:
@@ -1396,82 +1511,109 @@ class DuelScreen(Screen):
         draw_card(surface, self.note_rect, (20, 25, 48), radius=16, border=(36, 44, 76))
         if duel.num_players == 1:
             note = (
-                "Una sola persona frente a la cámara: el modo clásico se juega "
-                "contra el reloj. Cada ronda muestra un gesto y registra tu "
-                "tiempo; si no lo lográs, la ronda queda desierta."
+                "Contrarreloj con una sola persona: cada ronda muestra un gesto "
+                "y registra tu tiempo."
             )
         else:
             note = (
-                "Una cámara: menos hardware y sin sincronizar. Cada persona ocupa "
-                "una mitad del encuadre (izquierda o derecha). Riesgo: si se cruzan "
-                "o se acercan, el modelo puede confundir quién es quién."
+                "Una cámara sin sincronizar: cada persona ocupa una mitad del "
+                "encuadre."
             )
         draw_paragraph(
             surface, fonts, note,
-            15, MUTED, (self.note_rect.x + 18, self.note_rect.y + 16),
-            self.note_rect.w - 36, line_height=23,
+            13, MUTED, (self.note_rect.x + 14, self.note_rect.y + 12),
+            self.note_rect.w - 28, line_height=18,
         )
         if self.error:
             draw_text(
-                surface, fonts, self.error[:110], 14, BAD,
-                (self.note_rect.x + 18, self.note_rect.bottom - 26),
+                surface, fonts, self.error[:80], 12, BAD,
+                (self.note_rect.x + 14, self.note_rect.bottom - 22),
             )
 
     def _draw_history(self, surface: pygame.Surface) -> None:
+        """Tabla de rondas con scroll (la rueda o las flechas recorren)."""
         fonts = self.app.fonts
         duel = self.duel
-        top = 806
-        draw_text(surface, fonts, "Ronda", 15, MUTED, (MARGIN + 10, top))
-        draw_text(surface, fonts, "Gesto", 15, MUTED, (MARGIN + 118, top))
+        rect = self.history_rect
+        draw_card(surface, rect, (20, 25, 48), radius=16, border=(36, 44, 76))
 
-        first_x = MARGIN + 360
-        last_x = WIDTH - MARGIN - 120
+        top = rect.y + 12
+        draw_text(surface, fonts, "Rondas anteriores", 15, TEXT, (rect.x + 18, top), bold=True)
+        if len(duel.history) > self._history_rows():
+            draw_text(
+                surface, fonts, "rueda o ↑ ↓ para recorrer", 13, MUTED,
+                (rect.right - 18, top + 2), anchor="topright",
+            )
+
+        header_y = rect.y + 38
+        draw_text(surface, fonts, "Ronda", 14, MUTED, (rect.x + 18, header_y))
+        draw_text(surface, fonts, "Gesto", 14, MUTED, (rect.x + 96, header_y))
+
+        first_x = rect.x + 300
+        last_x = rect.right - 140
         columns = max(1, duel.num_players)
         spacing = (last_x - first_x) / columns if columns else 0
         for i in range(duel.num_players):
             draw_text(
-                surface, fonts, f"Jugador {i + 1}", 15, MUTED,
-                (int(first_x + i * spacing), top),
+                surface, fonts, f"Jugador {i + 1}", 14, MUTED,
+                (int(first_x + i * spacing), header_y),
             )
         if duel.num_players > 1:
-            draw_text(surface, fonts, "Gana", 15, MUTED, (last_x + 40, top))
+            draw_text(surface, fonts, "Gana", 14, MUTED, (last_x + 34, header_y))
         pygame.draw.line(
             surface, (38, 46, 78),
-            (MARGIN, top + 24), (WIDTH - MARGIN, top + 24), 1,
+            (rect.x + 18, header_y + 24), (rect.right - 18, header_y + 24), 1,
         )
 
         if not duel.history:
             draw_text(
-                surface, fonts, "Todavía no hay rondas jugadas.", 16, DIM,
-                (MARGIN + 10, top + 38),
+                surface, fonts, "Todavía no hay rondas jugadas.", 15, DIM,
+                (rect.x + 18, header_y + 36),
             )
             return
 
-        rows = list(reversed(duel.history))[:2]
+        visible = self._history_rows()
+        self.history_offset = max(0, min(self._history_max_offset(), self.history_offset))
+        rows = list(reversed(duel.history))[
+            self.history_offset:self.history_offset + visible
+        ]
         for row_index, record in enumerate(rows):
-            y = top + 40 + row_index * 26
-            draw_text(surface, fonts, str(record.index), 17, TEXT, (MARGIN + 10, y))
+            y = header_y + 36 + row_index * 26
+            draw_text(surface, fonts, str(record.index), 16, TEXT, (rect.x + 18, y))
             glyph = hand_glyph(record.gesture, 20)
-            surface.blit(glyph, (MARGIN + 116, y - 2))
+            surface.blit(glyph, (rect.x + 94, y - 2))
             draw_text(
-                surface, fonts, short_label(record.gesture), 17, TEXT, (MARGIN + 142, y)
+                surface, fonts, short_label(record.gesture), 16, TEXT, (rect.x + 120, y)
             )
             for player in range(duel.num_players):
                 value = record.times_ms.get(player)
                 draw_text(
-                    surface, fonts, format_seconds(value), 17,
+                    surface, fonts, format_seconds(value), 16,
                     TEXT if value is not None else DIM,
                     (int(first_x + player * spacing), y),
                 )
             if duel.num_players > 1:
                 if record.winner is None:
-                    draw_text(surface, fonts, "—", 17, DIM, (last_x + 40, y))
+                    draw_text(surface, fonts, "—", 16, DIM, (last_x + 34, y))
                 else:
                     draw_text(
-                        surface, fonts, f"Jugador {record.winner + 1}", 17,
+                        surface, fonts, f"Jugador {record.winner + 1}", 16,
                         PLAYER_COLORS[record.winner % len(PLAYER_COLORS)],
-                        (last_x + 40, y), bold=True,
+                        (last_x + 34, y), bold=True,
                     )
+
+        # Barra de scroll.
+        if self._history_max_offset() > 0:
+            track = pygame.Rect(rect.right - 10, header_y + 30, 4, rect.h - 48)
+            pygame.draw.rect(surface, (36, 44, 76), track, border_radius=2)
+            fraction = visible / len(duel.history)
+            thumb_h = max(24, int(track.h * fraction))
+            span = max(1, self._history_max_offset())
+            thumb_y = track.y + int((track.h - thumb_h) * self.history_offset / span)
+            pygame.draw.rect(
+                surface, (110, 126, 176),
+                pygame.Rect(track.x, thumb_y, track.w, thumb_h), border_radius=2,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1488,7 +1630,7 @@ class ChainScreen(Screen):
         self.error: str | None = None
 
         self.hero = pygame.Rect(MARGIN, 78, WIDTH - 2 * MARGIN, 226)
-        self.panels = row_panels(self.race.num_players, 318, 348, max_width=760)
+        self.panels = row_panels(self.race.num_players, 318, 348, max_width=620)
         self.button_rect = pygame.Rect(MARGIN, 704, 300, 64)
         self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
         self.hover_button = False
@@ -1688,7 +1830,7 @@ class ChainScreen(Screen):
         score = race.players[index]
         winner_now = race.phase == PHASE_FINISHED and race.winner == index
 
-        _viewport, stats = draw_player_panel(
+        stats = draw_player_panel(
             surface, fonts, rect,
             index=index,
             num_players=race.num_players,
@@ -1696,29 +1838,33 @@ class ChainScreen(Screen):
             demo=self.app.demo,
             label=score.live_label,
             border=PLAYER_COLORS[index % len(PLAYER_COLORS)] if winner_now else BORDER,
-            horizontal=race.num_players == 1,
         )
 
         elapsed = race.elapsed_ms(index, self.now)
+        if race.phase == PHASE_IDLE:
+            elapsed = 0
         timer_rect = draw_text(
-            surface, fonts, format_seconds(elapsed), 44,
-            TEXT if elapsed is not None else DIM,
-            (stats.x, stats.y), bold=True,
+            surface, fonts, format_seconds(elapsed), 32,
+            TEXT if elapsed else (206, 214, 234),
+            (stats.x, stats.y + 12), bold=True,
         )
         if winner_now:
-            draw_check(surface, (timer_rect.right + 24, timer_rect.centery), 22)
+            draw_check(surface, (timer_rect.right + 18, timer_rect.centery), 16)
         draw_text(
             surface, fonts, f"{score.progress}/{race.num_steps or race.chain_length}",
-            22, MUTED, (stats.right, stats.y + 18), anchor="topright",
+            19, (214, 221, 240), (stats.right, stats.y + 16), anchor="topright",
         )
-        self._draw_progress_dots(surface, stats, score)
+        self._draw_progress_dots(
+            surface, timer_rect.right + 26, timer_rect.centery, score
+        )
 
-    def _draw_progress_dots(self, surface: pygame.Surface, stats: pygame.Rect, score) -> None:
+    def _draw_progress_dots(
+        self, surface: pygame.Surface, x0: int, y: int, score
+    ) -> None:
         race = self.race
         total = max(1, race.num_steps or race.chain_length)
-        y = stats.y + 70
         for i in range(total):
-            x = stats.x + 6 + i * 30
+            x = x0 + i * 24
             if i < score.progress:
                 pygame.draw.circle(surface, GOOD, (x, y), 9)
                 draw_check(surface, (x, y), 10, (10, 18, 12), 2)
@@ -2144,12 +2290,12 @@ class GestureRushApp:
         pipeline,
         *,
         demo: bool = False,
+        fullscreen: bool = True,
     ) -> None:
         pygame.init()
         pygame.display.set_caption("Gesture Rush")
-        self.screen = pygame.display.set_mode(
-            (WIDTH, HEIGHT), pygame.SCALED | pygame.RESIZABLE
-        )
+        self.fullscreen = bool(fullscreen)
+        self._apply_mode()
         self.clock = pygame.time.Clock()
         self.fonts = Fonts()
         self.duel = duel
@@ -2159,6 +2305,7 @@ class GestureRushApp:
         self.demo = demo
         self.running = True
         self.players = duel.num_players
+        self.rounds = duel.total_rounds
 
         self.screens: dict[str, Screen] = {
             "menu": MenuScreen(self),
@@ -2167,6 +2314,29 @@ class GestureRushApp:
             "practice": PracticeScreen(self),
         }
         self.active: Screen = self.screens["menu"]
+
+    # -- Ventana -------------------------------------------------------------
+    def _apply_mode(self) -> None:
+        flags = pygame.SCALED
+        flags |= pygame.FULLSCREEN if self.fullscreen else pygame.RESIZABLE
+        try:
+            self.screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+            return
+        except pygame.error:
+            pass
+        if self.fullscreen:
+            # Si el sistema no puede con pantalla completa, sigue en ventana.
+            self.fullscreen = False
+            try:
+                self.screen = pygame.display.set_mode(
+                    (WIDTH, HEIGHT), pygame.SCALED | pygame.RESIZABLE
+                )
+            except pygame.error:
+                pass  # se queda con la superficie anterior
+
+    def toggle_fullscreen(self) -> None:
+        self.fullscreen = not self.fullscreen
+        self._apply_mode()
 
     # -- Navegacion ----------------------------------------------------------
     def show_menu(self) -> None:
@@ -2186,7 +2356,7 @@ class GestureRushApp:
         previous = (self.screens["duel"], self.screens["chain"])
         self.duel = Duel(
             num_players=count,
-            total_rounds=self.duel.total_rounds,
+            total_rounds=self.rounds,
             gestures=self.duel.gestures,
         )
         self.chain = ChainRace(
@@ -2197,6 +2367,22 @@ class GestureRushApp:
         self.screens["duel"] = DuelScreen(self)
         self.screens["chain"] = ChainScreen(self)
         if self.active in previous:
+            self.active = self.screens["menu"]
+
+    def set_rounds(self, rounds: int) -> None:
+        """Cambia las rondas del duelo y rearma su motor y su pantalla."""
+        rounds = max(0, int(rounds))
+        if rounds == self.rounds:
+            return
+        self.rounds = rounds
+        previous = self.screens["duel"]
+        self.duel = Duel(
+            num_players=self.players,
+            total_rounds=rounds,
+            gestures=self.duel.gestures,
+        )
+        self.screens["duel"] = DuelScreen(self)
+        if self.active is previous:
             self.active = self.screens["menu"]
 
     def start_game(self, key: str) -> None:
@@ -2223,6 +2409,8 @@ class GestureRushApp:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
+                    elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                        self.toggle_fullscreen()
                     else:
                         self.active.handle_event(event)
                 self.active.update(now)
