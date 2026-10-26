@@ -1,110 +1,110 @@
 # Informe de evaluacion - Gesture Rush
 
-- Mejor modelo: mlp
-- Participantes en train: participant_02
-- Participantes en validacion: participant_03
-- Participantes en test: participant_01
+- Mejor modelo: svm_rbf
+- Participantes en train: participant_03, participant_04
+- Participantes en validacion: participant_01
+- Participantes en test: participant_02
 
 ## random_forest - validacion
 - conjunto: validacion (seleccion de hiperparametros)
-- accuracy: 0.7695
-- f1_macro: 0.7659
-- f1_weighted: 0.7640
+- accuracy: 0.8282
+- f1_macro: 0.8286
+- f1_weighted: 0.8233
 - inferencia: 0.0000 ms/muestra
 
 ```
                 precision    recall  f1-score   support
 
-          fist      0.871     0.883     0.877       436
-       l_shape      0.839     0.696     0.761       434
-       ok_sign      0.760     0.960     0.848       474
-     open_palm      0.954     0.733     0.829       484
-      pinky_up      0.608     0.803     0.692       471
-pointing_index      0.691     0.801     0.742       478
-          rock      0.713     0.813     0.760       459
-         shaka      0.687     0.381     0.490       483
-     thumbs_up      0.768     0.919     0.837       433
-       victory      0.943     0.731     0.823       472
+          fist      0.870     0.645     0.741       622
+       l_shape      0.701     0.961     0.811       515
+       ok_sign      0.916     1.000     0.956       456
+     open_palm      0.991     0.923     0.956       454
+      pinky_up      0.899     0.891     0.895       512
+pointing_index      0.865     0.798     0.830       475
+          rock      0.940     0.949     0.944       591
+         shaka      0.549     0.838     0.664       525
+     thumbs_up      0.789     0.379     0.512       514
+       victory      0.993     0.962     0.977       451
 
-      accuracy                          0.769      4624
-     macro avg      0.783     0.772     0.766      4624
-  weighted avg      0.783     0.769     0.764      4624
+      accuracy                          0.828      5115
+     macro avg      0.851     0.835     0.829      5115
+  weighted avg      0.848     0.828     0.823      5115
 ```
 
 ## svm_rbf - validacion
 - conjunto: validacion (seleccion de hiperparametros)
-- accuracy: 0.7695
-- f1_macro: 0.7632
-- f1_weighted: 0.7631
+- accuracy: 0.9228
+- f1_macro: 0.9245
+- f1_weighted: 0.9212
 - inferencia: 0.0000 ms/muestra
 
 ```
                 precision    recall  f1-score   support
 
-          fist      0.782     0.830     0.805       436
-       l_shape      0.662     0.668     0.665       434
-       ok_sign      0.792     0.973     0.873       474
-     open_palm      0.955     0.870     0.910       484
-      pinky_up      0.719     0.809     0.761       471
-pointing_index      0.656     0.611     0.633       478
-          rock      0.731     0.882     0.800       459
-         shaka      0.852     0.429     0.570       483
-     thumbs_up      0.707     0.910     0.796       433
-       victory      0.930     0.731     0.819       472
+          fist      0.783     0.900     0.838       622
+       l_shape      0.952     0.957     0.955       515
+       ok_sign      0.972     0.993     0.983       456
+     open_palm      0.932     1.000     0.965       454
+      pinky_up      0.940     0.955     0.948       512
+pointing_index      0.931     0.943     0.937       475
+          rock      0.984     0.959     0.972       591
+         shaka      0.868     0.901     0.884       525
+     thumbs_up      0.939     0.656     0.772       514
+       victory      0.996     0.989     0.992       451
 
-      accuracy                          0.769      4624
-     macro avg      0.779     0.771     0.763      4624
-  weighted avg      0.781     0.769     0.763      4624
+      accuracy                          0.923      5115
+     macro avg      0.930     0.925     0.924      5115
+  weighted avg      0.926     0.923     0.921      5115
 ```
 
 ## mlp - validacion
 - conjunto: validacion (seleccion de hiperparametros)
-- accuracy: 0.7727
-- f1_macro: 0.7686
-- f1_weighted: 0.7672
+- accuracy: 0.8655
+- f1_macro: 0.8663
+- f1_weighted: 0.8621
 - inferencia: 0.0000 ms/muestra
 
 ```
                 precision    recall  f1-score   support
 
-          fist      0.914     0.828     0.869       436
-       l_shape      0.882     0.671     0.762       434
-       ok_sign      0.645     0.964     0.773       474
-     open_palm      0.843     0.876     0.859       484
-      pinky_up      0.650     0.516     0.575       471
-pointing_index      0.731     0.726     0.728       478
-          rock      0.758     0.861     0.806       459
-         shaka      0.822     0.518     0.635       483
-     thumbs_up      0.739     0.949     0.831       433
-       victory      0.860     0.835     0.847       472
+          fist      0.890     0.712     0.791       622
+       l_shape      0.889     0.981     0.933       515
+       ok_sign      0.948     0.996     0.971       456
+     open_palm      0.905     0.989     0.945       454
+      pinky_up      0.848     0.707     0.771       512
+pointing_index      0.852     0.874     0.863       475
+          rock      0.853     0.956     0.902       591
+         shaka      0.688     0.907     0.782       525
+     thumbs_up      0.950     0.630     0.758       514
+       victory      0.933     0.962     0.948       451
 
-      accuracy                          0.773      4624
-     macro avg      0.784     0.774     0.769      4624
-  weighted avg      0.783     0.773     0.767      4624
+      accuracy                          0.865      5115
+     macro avg      0.876     0.871     0.866      5115
+  weighted avg      0.874     0.865     0.862      5115
 ```
 
-## mlp - TEST (reservado)
+## svm_rbf - TEST (reservado)
 - conjunto: test reservado, evaluado una sola vez
-- accuracy: 0.8070
-- f1_macro: 0.8036
-- f1_weighted: 0.8047
-- inferencia: 0.0010 ms/muestra
+- accuracy: 0.8516
+- f1_macro: 0.8497
+- f1_weighted: 0.8531
+- inferencia: 0.3350 ms/muestra
 
 ```
                 precision    recall  f1-score   support
 
-          fist      0.965     0.836     0.896       622
-       l_shape      0.620     0.955     0.752       515
-       ok_sign      0.719     1.000     0.837       456
-     open_palm      0.930     0.733     0.820       454
-      pinky_up      0.749     0.578     0.653       512
-pointing_index      0.871     0.798     0.833       475
-          rock      0.940     0.936     0.938       591
-         shaka      0.672     0.524     0.589       525
-     thumbs_up      0.787     0.776     0.782       514
-       victory      0.932     0.942     0.937       451
+          fist      0.706     0.779     0.741       385
+       l_shape      0.919     0.788     0.848       490
+       ok_sign      0.810     0.884     0.845       550
+     open_palm      0.923     0.960     0.941       551
+      pinky_up      0.780     0.879     0.827       489
+pointing_index      0.734     0.869     0.796       525
+          rock      0.889     0.826     0.856       437
+         shaka      0.911     0.816     0.861       477
+     thumbs_up      0.924     0.865     0.894       490
+       victory      0.972     0.817     0.888       552
 
-      accuracy                          0.807      5115
-     macro avg      0.819     0.808     0.804      5115
-  weighted avg      0.821     0.807     0.805      5115
+      accuracy                          0.852      4946
+     macro avg      0.857     0.848     0.850      4946
+  weighted avg      0.860     0.852     0.853      4946
 ```
