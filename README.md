@@ -445,10 +445,11 @@ Cómo se llega a un gesto confirmado:
    propio suavizado: una mano en la mitad izquierda nunca puntúa para el jugador
    de la derecha. Prueba usa una sola franja (el encuadre completo).
 
-La interfaz dibuja sobre un lienzo de 1240×900 y pygame lo escala a la pantalla,
-así que funciona igual en cualquier monitor. Arranca en **pantalla completa**;
-`--windowed` (o `F11`) la pasa a ventana. Si la cámara o el modelo faltan, usá
-`--demo`; es también el modo de respaldo para la feria.
+La interfaz dibuja sobre un lienzo de 1600×900 (16:9) y pygame lo escala a la
+pantalla, así que en un monitor 1080p ocupa los 1920×1080 exactos, sin franjas.
+Arranca en **pantalla completa**; `--windowed` (o `F11`) la pasa a ventana. Si la
+cámara o el modelo faltan, usá `--demo`; es también el modo de respaldo para la
+feria.
 
 ## Comandos de referencia
 

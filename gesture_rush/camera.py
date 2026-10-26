@@ -45,22 +45,27 @@ class Camera:
     def open(self) -> "Camera":
         if self._cap is not None and self._cap.isOpened():
             return self
-        for backend in _candidate_backends():
-            try:
-                cap = cv2.VideoCapture(self.index, backend)
-            except cv2.error:
-                # Algunos drivers lanzan una excepcion C++ en lugar de
-                # devolver un VideoCapture vacio.
-                continue
-            if cap.isOpened():
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-                cap.set(cv2.CAP_PROP_FPS, self.target_fps)
-                self._cap = cap
-                return self
-            cap.release()
+        indices = [self.index]
+        if self.index == 0 and config.CAMERA_FALLBACK_INDEX != self.index:
+            indices.append(config.CAMERA_FALLBACK_INDEX)
+        for index in indices:
+            for backend in _candidate_backends():
+                try:
+                    cap = cv2.VideoCapture(index, backend)
+                except cv2.error:
+                    # Algunos drivers lanzan una excepcion C++ en lugar de
+                    # devolver un VideoCapture vacio.
+                    continue
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+                    self.index = index
+                    self._cap = cap
+                    return self
+                cap.release()
         raise CameraError(
-            f"No se pudo abrir la camara en el indice {self.index}. "
+            f"No se pudo abrir la camara en los indices {indices}. "
             "Verifica que este conectada y no en uso por otra aplicacion. "
             "Para elegir otra entrada: "
             "set GESTURE_CAMERA_INDEX=<indice> (o usa scripts/list_cameras.py)."

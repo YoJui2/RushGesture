@@ -41,7 +41,7 @@ from .player_tracker import PlayerReading
 # ---------------------------------------------------------------------------
 # Lienzo
 # ---------------------------------------------------------------------------
-WIDTH = 1240
+WIDTH = 1600
 HEIGHT = 900
 FPS = 60
 MARGIN = 24
@@ -1549,8 +1549,8 @@ class DuelScreen(Screen):
         draw_text(surface, fonts, "Ronda", 14, MUTED, (rect.x + 18, header_y))
         draw_text(surface, fonts, "Gesto", 14, MUTED, (rect.x + 96, header_y))
 
-        first_x = rect.x + 300
-        last_x = rect.right - 140
+        first_x = rect.x + 330
+        last_x = rect.right - 240
         columns = max(1, duel.num_players)
         spacing = (last_x - first_x) / columns if columns else 0
         for i in range(duel.num_players):
@@ -1559,7 +1559,10 @@ class DuelScreen(Screen):
                 (int(first_x + i * spacing), header_y),
             )
         if duel.num_players > 1:
-            draw_text(surface, fonts, "Gana", 14, MUTED, (last_x + 34, header_y))
+            draw_text(
+                surface, fonts, "Gana", 14, MUTED,
+                (rect.right - 18, header_y), anchor="topright",
+            )
         pygame.draw.line(
             surface, (38, 46, 78),
             (rect.x + 18, header_y + 24), (rect.right - 18, header_y + 24), 1,
@@ -1594,12 +1597,15 @@ class DuelScreen(Screen):
                 )
             if duel.num_players > 1:
                 if record.winner is None:
-                    draw_text(surface, fonts, "—", 16, DIM, (last_x + 34, y))
+                    draw_text(
+                        surface, fonts, "—", 16, DIM,
+                        (rect.right - 18, y), anchor="topright",
+                    )
                 else:
                     draw_text(
                         surface, fonts, f"Jugador {record.winner + 1}", 16,
                         PLAYER_COLORS[record.winner % len(PLAYER_COLORS)],
-                        (last_x + 34, y), bold=True,
+                        (rect.right - 18, y), bold=True, anchor="topright",
                     )
 
         # Barra de scroll.
@@ -1911,7 +1917,7 @@ class ChainScreen(Screen):
         draw_paragraph(
             surface, fonts, note,
             15, MUTED, (self.note_rect.x + 18, self.note_rect.y + 16),
-            self.note_rect.w - 36, line_height=23,
+            min(self.note_rect.w - 36, 760), line_height=23,
         )
         if self.error:
             draw_text(
@@ -1923,10 +1929,17 @@ class ChainScreen(Screen):
         fonts = self.app.fonts
         race = self.race
         top = 806
-        draw_text(surface, fonts, "Jugador", 15, MUTED, (MARGIN + 10, top))
-        draw_text(surface, fonts, "Cadena", 15, MUTED, (MARGIN + 300, top))
-        draw_text(surface, fonts, "Tiempo total", 15, MUTED, (MARGIN + 560, top))
-        draw_text(surface, fonts, "Media por gesto", 15, MUTED, (MARGIN + 820, top))
+        spread = WIDTH - 2 * MARGIN
+        columns = (
+            MARGIN + 10,
+            MARGIN + int(spread * 0.26),
+            MARGIN + int(spread * 0.50),
+            MARGIN + int(spread * 0.74),
+        )
+        draw_text(surface, fonts, "Jugador", 15, MUTED, (columns[0], top))
+        draw_text(surface, fonts, "Cadena", 15, MUTED, (columns[1], top))
+        draw_text(surface, fonts, "Tiempo total", 15, MUTED, (columns[2], top))
+        draw_text(surface, fonts, "Media por gesto", 15, MUTED, (columns[3], top))
         pygame.draw.line(
             surface, (38, 46, 78),
             (MARGIN, top + 24), (WIDTH - MARGIN, top + 24), 1,
@@ -1944,20 +1957,20 @@ class ChainScreen(Screen):
             color = PLAYER_COLORS[score.index % len(PLAYER_COLORS)]
             draw_text(
                 surface, fonts, f"Jugador {score.index + 1}", 17, color,
-                (MARGIN + 10, y), bold=True,
+                (columns[0], y), bold=True,
             )
             draw_text(
                 surface, fonts, f"{score.progress}/{race.num_steps}", 17, TEXT,
-                (MARGIN + 300, y),
+                (columns[1], y),
             )
             draw_text(
                 surface, fonts, format_seconds(race.elapsed_ms(score.index, self.now)),
                 17, TEXT if score.done or race.phase == PHASE_PLAYING else DIM,
-                (MARGIN + 560, y),
+                (columns[2], y),
             )
             draw_text(
                 surface, fonts, format_seconds(race.average_step_ms(score.index)), 17, MUTED,
-                (MARGIN + 820, y),
+                (columns[3], y),
             )
 
 
@@ -1983,8 +1996,8 @@ class PracticeScreen(Screen):
         self.min_votes = int(config.SMOOTHING_MIN_VOTES)
         self.show_landmarks = True
 
-        self.camera_rect = pygame.Rect(MARGIN, 78, 780, 562)
-        self.side_rect = pygame.Rect(820, 78, 396, 562)
+        self.camera_rect = pygame.Rect(MARGIN, 78, 1000, 562)
+        self.side_rect = pygame.Rect(MARGIN + 1016, 78, 536, 562)
         self.note_rect = pygame.Rect(MARGIN, 656, WIDTH - 2 * MARGIN, 228)
 
     # -- Eventos -------------------------------------------------------------
