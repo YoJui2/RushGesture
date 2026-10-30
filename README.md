@@ -372,6 +372,12 @@ pulgar** (👍), o `ESPACIO`/`ENTER`/clic en el botón. En el duelo, la rueda de
 mouse o `↑`/`↓` recorren el historial de rondas. En `--demo`, `1` y `2` simulan
 el pulgar arriba fuera de ronda y el acierto durante la ronda.
 
+Música y volumen: la app sintetiza un bucle de fondo al arrancar (no hace falta
+ningún archivo de audio). El botón de altavoz de la esquina superior derecha
+despliega el control de volumen; también se puede abrir con `V`, silenciar con
+`M` y ajustar con `+`/`-`. Si la máquina no tiene dispositivo de audio, el juego
+funciona igual, en silencio.
+
 Los iconos de cada gesto son PNG en `assets/hands/` (uno por clase). Si falta
 alguno, la interfaz dibuja un icono vectorial de respaldo, así que la app
 funciona igual sin esas imágenes.
@@ -386,8 +392,9 @@ El gesto objetivo es el mismo para todos; el primero en hacerlo se lleva el punt
 
 - Cuenta atrás de 3 s, luego 8 s para hacer el gesto (barra de progreso).
 - El primero en acertar se lleva el punto; la ronda espera hasta 2 s al rival
-  para registrar su tiempo, y la pantalla muestra la diferencia en segundos.
+  para registrar su tiempo, y la pantalla muestra la diferencia en milisegundos.
 - Si nadie acierta, la ronda queda desierta. Tiempos idénticos son empate.
+- Al cerrar una ronda con ganador se lanza una animación de confeti.
 - La ronda arranca cuando **todos levantan el pulgar** (o con el botón/`ENTER`).
 - Al terminar las rondas se muestra el ganador y el **historial completo**: la
   rueda del mouse o `↑`/`↓` recorren todas las rondas jugadas.

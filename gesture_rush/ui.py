@@ -10,14 +10,20 @@ Pantallas
 - ``PracticeScreen``: modo Prueba, sin reglas. Muestra la prediccion cruda, el
   top 3 del clasificador y el voto temporal, para explicar el modelo.
 
-El dibujo se hace sobre una superficie de 1240x900 que pygame escala a la
+El dibujo se hace sobre una superficie de 1600x900 que pygame escala a la
 ventana real (``pygame.SCALED``), asi que las coordenadas son siempre las
 mismas y la interfaz se adapta al monitor.
+
+Los tiempos se muestran siempre en milisegundos. La musica de fondo se
+sintetiza en ``audio.py`` y el control de volumen se dibuja por encima de
+cualquier pantalla; el confeti es una animacion generica que se lanza al
+cerrar una ronda o carrera con ganador.
 """
 
 from __future__ import annotations
 
 import math
+import random
 import time
 from pathlib import Path
 
@@ -26,6 +32,7 @@ import numpy as np
 import pygame
 
 from . import config
+from .audio import Music
 from .game import (
     PHASE_COUNTDOWN,
     PHASE_FINISHED,
@@ -555,11 +562,11 @@ def frame_surface(
     return pygame.image.frombuffer(rgb.tobytes(), target, "RGB"), target
 
 
-def format_seconds(value: int | None) -> str:
-    """Tiempo en milisegundos -> texto en segundos (``1,23 s``)."""
+def format_ms(value: int | None) -> str:
+    """Tiempo en milisegundos -> texto (``1234 ms``)."""
     if value is None:
         return "—"
-    return f"{value / 1000.0:.2f}".replace(".", ",") + " s"
+    return f"{int(round(value))} ms"
 
 
 def points_label(points: int) -> str:
@@ -578,13 +585,13 @@ def draw_arena_header(
     draw_text(surface, fonts, title, 30, TEXT, (MARGIN, 26), bold=True)
     draw_text(
         surface, fonts, "ESC · menú", 15, MUTED,
-        (WIDTH - MARGIN - 214, 34), anchor="topright",
+        (WIDTH - MARGIN - 214 - 52, 34), anchor="topright",
     )
     people = "1 persona" if num_players == 1 else f"{num_players} personas"
     draw_pill(
         surface, fonts,
         chip or f"1 cámara · {people}",
-        (WIDTH - MARGIN, 22), CARD_SOFT, MUTED, size=16, anchor="topright",
+        (WIDTH - MARGIN - 52, 22), CARD_SOFT, MUTED, size=16, anchor="topright",
     )
 
 
@@ -627,6 +634,114 @@ def draw_meter(
         return
     filled = pygame.Rect(rect.x, rect.y, max(rect.h, int(rect.w * value)), rect.h)
     pygame.draw.rect(surface, color, filled, border_radius=rect.h // 2)
+
+
+CONFETTI_COLORS = (
+    AMBER,
+    GOOD,
+    (108, 162, 255),
+    (255, 94, 138),
+    (110, 231, 183),
+    (255, 255, 255),
+    (255, 168, 76),
+)
+
+
+class Confetti:
+    """Animacion generica de confeti para celebrar el cierre de una ronda.
+
+    Cada papel es un rectangulo que sale disparado, cae con gravedad, gira y se
+    desvanece hacia el color del fondo. No usa imagenes: sirve para cualquier
+    pantalla del juego.
+    """
+
+    def __init__(self, *, gravity: float = 980.0) -> None:
+        self.gravity = float(gravity)
+        self._rng = random.Random()
+        self._particles: list[dict] = []
+        self._last_now: float | None = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self._particles)
+
+    def burst(
+        self,
+        center: tuple[int, int],
+        *,
+        count: int = 130,
+        speed: tuple[float, float] = (260.0, 720.0),
+    ) -> None:
+        """Lanza ``count`` papeles desde ``center``."""
+        cx, cy = center
+        for _ in range(count):
+            angle = self._rng.uniform(-math.pi * 0.92, -math.pi * 0.08)
+            velocity = self._rng.uniform(*speed)
+            self._particles.append(
+                {
+                    "x": cx + self._rng.uniform(-40.0, 40.0),
+                    "y": cy + self._rng.uniform(-18.0, 18.0),
+                    "vx": math.cos(angle) * velocity,
+                    "vy": math.sin(angle) * velocity,
+                    "angle": self._rng.uniform(0.0, math.tau),
+                    "spin": self._rng.uniform(-9.0, 9.0),
+                    "size": self._rng.uniform(5.0, 12.0),
+                    "life": self._rng.uniform(1.5, 3.0),
+                    "age": 0.0,
+                    "color": self._rng.choice(CONFETTI_COLORS),
+                }
+            )
+
+    def clear(self) -> None:
+        self._particles.clear()
+        self._last_now = None
+
+    def update(self, now: float) -> None:
+        if self._last_now is None:
+            self._last_now = now
+        dt = max(0.0, min(0.05, now - self._last_now))
+        self._last_now = now
+        if dt <= 0 or not self._particles:
+            return
+        alive: list[dict] = []
+        for particle in self._particles:
+            particle["age"] += dt
+            if particle["age"] >= particle["life"]:
+                continue
+            particle["vy"] += self.gravity * dt
+            drag = max(0.0, 1.0 - 0.55 * dt)
+            particle["vx"] *= drag
+            particle["vy"] *= drag
+            particle["x"] += particle["vx"] * dt
+            particle["y"] += particle["vy"] * dt
+            particle["angle"] += particle["spin"] * dt
+            if particle["y"] > HEIGHT + 40:
+                continue
+            alive.append(particle)
+        self._particles = alive
+
+    def draw(self, surface: pygame.Surface) -> None:
+        for particle in self._particles:
+            fade = 1.0 - particle["age"] / particle["life"]
+            color = tuple(
+                int(BG[i] + (particle["color"][i] - BG[i]) * fade) for i in range(3)
+            )
+            # El ancho se encoge con el giro: da sensacion de papel que voltea.
+            half_w = particle["size"] * (0.35 + 0.65 * abs(math.cos(particle["angle"] * 1.4))) / 2
+            half_h = particle["size"] / 2
+            cos_a, sin_a = math.cos(particle["angle"]), math.sin(particle["angle"])
+            corners = []
+            for dx, dy in (
+                (-half_w, -half_h), (half_w, -half_h),
+                (half_w, half_h), (-half_w, half_h),
+            ):
+                corners.append(
+                    (
+                        int(particle["x"] + dx * cos_a - dy * sin_a),
+                        int(particle["y"] + dx * sin_a + dy * cos_a),
+                    )
+                )
+            pygame.draw.polygon(surface, color, corners)
 
 
 HAND_CONNECTIONS = (
@@ -1074,7 +1189,7 @@ class MenuScreen(Screen):
 
         draw_text(
             surface, fonts,
-            "1, 2, 3 minijuego · P jugadores · R rondas · F11 pantalla · ESC salir",
+            "1, 2, 3 minijuego · P jugadores · R rondas · V volumen · F11 pantalla · ESC salir",
             17, MUTED, (WIDTH // 2, 842), anchor="midtop",
         )
 
@@ -1183,6 +1298,8 @@ class DuelScreen(Screen):
         self.history_offset = 0
         self.hover_button = False
         self.gate = ThumbsUpGate(self.duel.num_players)
+        self.confetti = Confetti()
+        self._rounds_seen = 0
 
     # -- Historial -----------------------------------------------------------
     def _history_rows(self) -> int:
@@ -1205,6 +1322,8 @@ class DuelScreen(Screen):
                 self._start_round()
             elif event.key == pygame.K_r:
                 self.duel.reset()
+                self.confetti.clear()
+                self._rounds_seen = 0
             elif event.key == pygame.K_UP:
                 self._scroll_history(-1)
             elif event.key == pygame.K_DOWN:
@@ -1235,6 +1354,7 @@ class DuelScreen(Screen):
     # -- Actualizacion -------------------------------------------------------
     def update(self, now: float) -> None:
         super().update(now)
+        self.confetti.update(now)
         try:
             self.frame, self.readings = self.app.pipeline.read(now)
             self.error = None
@@ -1257,8 +1377,28 @@ class DuelScreen(Screen):
         if self.gate.update(labels, self._can_start()):
             self._start_round()
 
+        self._celebrate_closed_round()
+
         mouse = pygame.mouse.get_pos()
         self.hover_button = self.button_rect.collidepoint(mouse) and self._can_start()
+
+    def _celebrate_closed_round(self) -> None:
+        """Lanza confeti cuando se cierra una ronda con ganador."""
+        rounds = len(self.duel.history)
+        if rounds < self._rounds_seen:
+            self._rounds_seen = rounds  # partida reiniciada
+            return
+        if rounds <= self._rounds_seen:
+            return
+        self._rounds_seen = rounds
+
+        record = self.duel.current_round
+        if record is None or record.winner is None:
+            return
+        panel = self.panels[record.winner % len(self.panels)]
+        self.confetti.burst((panel.centerx, panel.y + 110))
+        if self.duel.phase == PHASE_FINISHED:
+            self.confetti.burst((self.hero.centerx, self.hero.centery), count=90)
 
     # -- Dibujo --------------------------------------------------------------
     def draw(self) -> None:
@@ -1270,6 +1410,7 @@ class DuelScreen(Screen):
             self._draw_panel(surface, index, panel)
         self._draw_bottom(surface)
         self._draw_history(surface)
+        self.confetti.draw(surface)
 
     def _draw_header(self, surface: pygame.Surface) -> None:
         draw_arena_header(surface, self.app.fonts, "Duelo de gestos", self.duel.num_players)
@@ -1304,7 +1445,7 @@ class DuelScreen(Screen):
             draw_text(
                 surface, fonts,
                 f"Ronda {duel.round_number} de {duel.total_rounds or '∞'} · "
-                f"{remaining:0.1f} s".replace(".", ","),
+                f"{int(round(remaining * 1000))} ms",
                 19, MUTED, (cx, hero.y + 174), anchor="midtop",
             )
             self._draw_progress(surface)
@@ -1359,7 +1500,7 @@ class DuelScreen(Screen):
                 player = duel.players[0]
                 detail = f"{duel.rounds_played} rondas jugadas"
                 if player.best_ms is not None:
-                    detail += f" · mejor tiempo {format_seconds(player.best_ms)}"
+                    detail += f" · mejor tiempo {format_ms(player.best_ms)}"
                 draw_text(
                     surface, fonts, detail, 20, MUTED,
                     (cx, hero.y + 152), anchor="midtop",
@@ -1400,7 +1541,7 @@ class DuelScreen(Screen):
             time_ms = record.times_ms.get(0) if record else None
             draw_text(
                 surface, fonts,
-                f"Tiempo: {format_seconds(time_ms)}. {start_hint(self.gate)}.",
+                f"Tiempo: {format_ms(time_ms)}. {start_hint(self.gate)}.",
                 20, MUTED, (cx, hero.y + 152), anchor="midtop",
             )
             return
@@ -1411,7 +1552,7 @@ class DuelScreen(Screen):
         )
         margin = record.margin_ms if record else None
         if margin is not None:
-            subtitle = f"Diferencia de {format_seconds(margin)}. {start_hint(self.gate)}."
+            subtitle = f"Diferencia de {format_ms(margin)}. {start_hint(self.gate)}."
         else:
             subtitle = f"Sin rival en el tiempo. {start_hint(self.gate)}."
         draw_text(surface, fonts, subtitle, 20, MUTED, (cx, hero.y + 152), anchor="midtop")
@@ -1451,7 +1592,7 @@ class DuelScreen(Screen):
             (stats.x, stats.y),
         )
         timer_rect = draw_text(
-            surface, fonts, format_seconds(elapsed), 32,
+            surface, fonts, format_ms(elapsed), 32,
             TEXT if elapsed else (206, 214, 234),
             (stats.x, stats.y + 16), bold=True,
         )
@@ -1591,7 +1732,7 @@ class DuelScreen(Screen):
             for player in range(duel.num_players):
                 value = record.times_ms.get(player)
                 draw_text(
-                    surface, fonts, format_seconds(value), 16,
+                    surface, fonts, format_ms(value), 16,
                     TEXT if value is not None else DIM,
                     (int(first_x + player * spacing), y),
                 )
@@ -1641,6 +1782,8 @@ class ChainScreen(Screen):
         self.note_rect = pygame.Rect(MARGIN + 316, 682, WIDTH - 2 * MARGIN - 316, 108)
         self.hover_button = False
         self.gate = ThumbsUpGate(self.race.num_players)
+        self.confetti = Confetti()
+        self._finished_seen = False
 
     # -- Eventos -------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -1651,6 +1794,8 @@ class ChainScreen(Screen):
                 self._start_race()
             elif event.key == pygame.K_r:
                 self.race.reset()
+                self.confetti.clear()
+                self._finished_seen = False
             elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
                 player = event.key - pygame.K_1
                 force = getattr(self.app.pipeline, "force", None)
@@ -1670,6 +1815,7 @@ class ChainScreen(Screen):
     # -- Actualizacion -------------------------------------------------------
     def update(self, now: float) -> None:
         super().update(now)
+        self.confetti.update(now)
         try:
             self.frame, self.readings = self.app.pipeline.read(now)
             self.error = None
@@ -1692,8 +1838,23 @@ class ChainScreen(Screen):
         if self.gate.update(labels, self._can_start()):
             self._start_race()
 
+        self._celebrate_finish()
+
         mouse = pygame.mouse.get_pos()
         self.hover_button = self.button_rect.collidepoint(mouse) and self._can_start()
+
+    def _celebrate_finish(self) -> None:
+        """Lanza confeti la primera vez que la carrera termina con ganador."""
+        if self.race.phase != PHASE_FINISHED:
+            self._finished_seen = False
+            return
+        if self._finished_seen:
+            return
+        self._finished_seen = True
+        if self.race.winner is not None:
+            panel = self.panels[self.race.winner % len(self.panels)]
+            self.confetti.burst((panel.centerx, panel.y + 110))
+            self.confetti.burst((self.hero.centerx, self.hero.centery), count=80)
 
     # -- Dibujo --------------------------------------------------------------
     def draw(self) -> None:
@@ -1705,6 +1866,7 @@ class ChainScreen(Screen):
             self._draw_panel(surface, index, panel)
         self._draw_bottom(surface)
         self._draw_scoreboard(surface)
+        self.confetti.draw(surface)
 
     def _draw_hero(self, surface: pygame.Surface) -> None:
         fonts = self.app.fonts
@@ -1801,8 +1963,8 @@ class ChainScreen(Screen):
                 (cx, hero.y + 102), bold=True, anchor="midtop",
             )
             detail = (
-                f"{race.num_steps} gestos en {format_seconds(score.finished_ms)}"
-                f" · media {format_seconds(race.average_step_ms(winner))}"
+                f"{race.num_steps} gestos en {format_ms(score.finished_ms)}"
+                f" · media {format_ms(race.average_step_ms(winner))}"
             )
             draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 158), anchor="midtop")
             draw_text(
@@ -1816,12 +1978,12 @@ class ChainScreen(Screen):
             PLAYER_COLORS[winner % len(PLAYER_COLORS)],
             (cx, hero.y + 102), bold=True, anchor="midtop",
         )
-        detail = f"{race.num_steps} gestos en {format_seconds(score.finished_ms)}"
+        detail = f"{race.num_steps} gestos en {format_ms(score.finished_ms)}"
         rival = next((p for p in race.players if p.index != winner), None)
         if rival is not None:
             if rival.done and rival.finished_ms is not None:
                 margin = abs(rival.finished_ms - (score.finished_ms or 0))
-                detail += f" · diferencia de {format_seconds(margin)}"
+                detail += f" · diferencia de {format_ms(margin)}"
             else:
                 detail += f" · el jugador {rival.index + 1} quedó en {rival.progress}/{race.num_steps}"
         draw_text(surface, fonts, detail, 19, MUTED, (cx, hero.y + 158), anchor="midtop")
@@ -1850,7 +2012,7 @@ class ChainScreen(Screen):
         if race.phase == PHASE_IDLE:
             elapsed = 0
         timer_rect = draw_text(
-            surface, fonts, format_seconds(elapsed), 32,
+            surface, fonts, format_ms(elapsed), 32,
             TEXT if elapsed else (206, 214, 234),
             (stats.x, stats.y + 12), bold=True,
         )
@@ -1964,12 +2126,12 @@ class ChainScreen(Screen):
                 (columns[1], y),
             )
             draw_text(
-                surface, fonts, format_seconds(race.elapsed_ms(score.index, self.now)),
+                surface, fonts, format_ms(race.elapsed_ms(score.index, self.now)),
                 17, TEXT if score.done or race.phase == PHASE_PLAYING else DIM,
                 (columns[2], y),
             )
             draw_text(
-                surface, fonts, format_seconds(race.average_step_ms(score.index)), 17, MUTED,
+                surface, fonts, format_ms(race.average_step_ms(score.index)), 17, MUTED,
                 (columns[3], y),
             )
 
@@ -2290,6 +2452,206 @@ class PracticeScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
+# Volumen
+# ---------------------------------------------------------------------------
+class VolumeControl:
+    """Altavoz de la esquina: al pulsarlo despliega el volumen de la musica.
+
+    Se dibuja por encima de la pantalla activa y consume sus propios eventos,
+    asi los clics del panel no disparan botones del juego. Tambien responde a
+    ``V`` (abrir/cerrar), ``M`` (silencio) y ``+``/``-`` (subir/bajar).
+    """
+
+    BUTTON = 40
+
+    def __init__(self, app: "GestureRushApp") -> None:
+        self.app = app
+        self.open = False
+        self.dragging = False
+        self.hover = False
+
+        self.rect = pygame.Rect(
+            WIDTH - MARGIN - self.BUTTON, 22, self.BUTTON, self.BUTTON
+        )
+        self.panel = pygame.Rect(
+            WIDTH - MARGIN - 320, self.rect.bottom + 10, 320, 140
+        )
+        self.mute_rect = pygame.Rect(
+            self.panel.right - 118, self.panel.y + 12, 94, 30
+        )
+        self.slider = pygame.Rect(
+            self.panel.x + 24, self.panel.y + 72, self.panel.w - 48, 10
+        )
+        # Fondo oscurecido detras del panel: deja claro que el resto no responde.
+        self._backdrop = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        self._backdrop.fill((4, 7, 18, 150))
+
+    @property
+    def music(self) -> Music:
+        return self.app.music
+
+    # -- Estado --------------------------------------------------------------
+    def toggle(self) -> None:
+        self.open = not self.open
+        self.dragging = False
+
+    def _slide_to(self, x: int) -> None:
+        fraction = (x - self.slider.x) / max(1, self.slider.w)
+        self.music.set_volume(fraction)
+
+    # -- Eventos -------------------------------------------------------------
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """Devuelve ``True`` si el evento era del control y no de la pantalla."""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_v:
+                self.toggle()
+                return True
+            if event.key == pygame.K_m:
+                self.music.toggle_mute()
+                self.open = True
+                return True
+            if event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
+                self.music.change_volume(0.05)
+                self.open = True
+                return True
+            if event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
+                self.music.change_volume(-0.05)
+                self.open = True
+                return True
+            if event.key == pygame.K_ESCAPE and self.open:
+                self.open = False
+                return True
+            return False
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.rect.collidepoint(event.pos):
+                self.toggle()
+                return True
+            if not self.open:
+                return False
+            if self.slider.inflate(0, 24).collidepoint(event.pos):
+                self.dragging = True
+                self._slide_to(event.pos[0])
+                return True
+            if self.mute_rect.collidepoint(event.pos):
+                self.music.toggle_mute()
+                return True
+            if self.panel.collidepoint(event.pos):
+                return True
+            # Clic fuera: se cierra el panel y el clic sigue a la pantalla.
+            self.open = False
+            return False
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.dragging:
+            self.dragging = False
+            return True
+
+        if event.type == pygame.MOUSEMOTION and self.dragging:
+            self._slide_to(event.pos[0])
+            return True
+
+        return False
+
+    def update(self) -> None:
+        self.hover = self.rect.collidepoint(pygame.mouse.get_pos())
+
+    # -- Dibujo --------------------------------------------------------------
+    def _draw_speaker(
+        self,
+        surface: pygame.Surface,
+        center: tuple[int, int],
+        color: tuple[int, int, int],
+    ) -> None:
+        x, y = center
+        pygame.draw.polygon(
+            surface, color,
+            (
+                (x - 12, y - 5), (x - 6, y - 5), (x + 2, y - 12),
+                (x + 2, y + 12), (x - 6, y + 5), (x - 12, y + 5),
+            ),
+        )
+        if self.music.muted:
+            pygame.draw.line(surface, BAD, (x - 4, y - 11), (x + 14, y + 11), 3)
+            return
+        for radius in (9, 15):
+            pygame.draw.arc(
+                surface, color,
+                pygame.Rect(x + 3, y - radius, radius * 2, radius * 2),
+                -0.85, 0.85, 2,
+            )
+
+    def _draw_panel(self, surface: pygame.Surface) -> None:
+        fonts = self.app.fonts
+        music = self.music
+        panel = self.panel
+
+        surface.blit(self._backdrop, (0, 0))
+        pygame.draw.rect(
+            surface, (6, 9, 22), panel.move(0, 4), border_radius=16
+        )
+        draw_card(surface, panel, (26, 33, 62), radius=16, border=(58, 70, 116))
+        draw_text(
+            surface, fonts, "Música", 18, TEXT,
+            (panel.x + 22, panel.y + 16), bold=True,
+        )
+
+        muted = music.muted
+        pygame.draw.rect(
+            surface, AMBER if muted else (38, 48, 86),
+            self.mute_rect, border_radius=15
+        )
+        draw_text(
+            surface, fonts, "Sonar" if muted else "Silencio", 13,
+            (26, 22, 8) if muted else (196, 206, 230),
+            self.mute_rect.center, bold=muted, anchor="center",
+        )
+
+        track = self.slider
+        fraction = music.volume
+        pygame.draw.rect(surface, (40, 50, 84), track, border_radius=5)
+        color = DIM if muted else AMBER
+        if fraction > 0:
+            filled = pygame.Rect(
+                track.x, track.y, max(track.h, int(track.w * fraction)), track.h
+            )
+            pygame.draw.rect(surface, color, filled, border_radius=5)
+        knob = (track.x + int(track.w * fraction), track.centery)
+        pygame.draw.circle(surface, (240, 244, 255), knob, 9)
+        pygame.draw.circle(surface, color, knob, 9, 2)
+
+        draw_text(
+            surface, fonts, "Silenciado" if muted else f"{int(round(fraction * 100))} %",
+            15, MUTED if muted else AMBER,
+            (panel.x + 22, panel.y + 92), bold=True,
+        )
+        if music.available:
+            draw_text(
+                surface, fonts, "V cierra · M silencia · + / −", 12, DIM,
+                (panel.right - 22, panel.y + 96), anchor="topright",
+            )
+        else:
+            draw_text(
+                surface, fonts, "sin dispositivo de audio", 12, BAD,
+                (panel.right - 22, panel.y + 96), anchor="topright",
+            )
+
+    def draw(self, surface: pygame.Surface) -> None:
+        if self.open:
+            self._draw_panel(surface)
+
+        bg = (36, 46, 86) if self.hover else CARD_SOFT
+        if self.open:
+            bg = AMBER
+        fg = (26, 22, 8) if self.open else TEXT
+        pygame.draw.rect(surface, bg, self.rect, border_radius=12)
+        pygame.draw.rect(
+            surface, AMBER_DEEP if self.open else BORDER,
+            self.rect, width=2, border_radius=12,
+        )
+        self._draw_speaker(surface, self.rect.center, fg)
+
+
+# ---------------------------------------------------------------------------
 # Aplicacion
 # ---------------------------------------------------------------------------
 class GestureRushApp:
@@ -2311,6 +2673,7 @@ class GestureRushApp:
         self._apply_mode()
         self.clock = pygame.time.Clock()
         self.fonts = Fonts()
+        self.music = Music()
         self.duel = duel
         self.chain = chain
         self.practice = practice
@@ -2326,6 +2689,7 @@ class GestureRushApp:
             "chain": ChainScreen(self),
             "practice": PracticeScreen(self),
         }
+        self.volume = VolumeControl(self)
         self.active: Screen = self.screens["menu"]
 
     # -- Ventana -------------------------------------------------------------
@@ -2424,13 +2788,18 @@ class GestureRushApp:
                         self.running = False
                     elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
                         self.toggle_fullscreen()
+                    elif self.volume.handle_event(event):
+                        continue
                     else:
                         self.active.handle_event(event)
                 self.active.update(now)
+                self.volume.update()
                 self.active.draw()
+                self.volume.draw(self.screen)
                 pygame.display.flip()
                 self.clock.tick(FPS)
         finally:
+            self.music.close()
             close = getattr(self.pipeline, "close", None)
             if callable(close):
                 close()

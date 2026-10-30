@@ -13,6 +13,9 @@ Teclas:
     ESC              volver al menu (desde el menu, salir)
     1 / 2 / 3        en el menu, elegir minijuego
     1 / 2            en --demo: pulgar arriba fuera de ronda, acierto en ronda
+    V                abrir/cerrar el control de volumen
+    M                silenciar / recuperar la musica
+    + / -            subir / bajar el volumen
 """
 
 from __future__ import annotations
